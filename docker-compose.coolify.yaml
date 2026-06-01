@@ -1,0 +1,163 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-postgres-password}
+      POSTGRES_DB: ${POSTGRES_DB:-spx_voice}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-spx_voice}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-change-this-redis-password}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-change-this-redis-password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-minio-password}
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - api-runtime:/app/api/.runtime
+      - shared-tmp:/tmp
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DEPLOYMENT_MODE: oss
+      AUTH_PROVIDER: local
+      ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-false}
+      SINGLE_ORGANIZATION_MODE: ${SINGLE_ORGANIZATION_MODE:-true}
+      MANAGED_ORGANIZATION_PROVIDER_ID: ${MANAGED_ORGANIZATION_PROVIDER_ID:-managed_single_org}
+      OSS_JWT_SECRET: ${OSS_JWT_SECRET:-change-this-jwt-secret}
+
+      BACKEND_API_ENDPOINT: ${APP_URL:-http://localhost:3010}
+      UI_APP_URL: ${APP_URL:-http://localhost:3010}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change-this-postgres-password}@postgres:5432/${POSTGRES_DB:-spx_voice}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+
+      ENABLE_AWS_S3: "false"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${APP_URL:-http://localhost:3010}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-this-minio-password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-voice-audio}
+      MINIO_SECURE: "false"
+
+      FASTAPI_WORKERS: "1"
+      ARQ_WORKERS: ${ARQ_WORKERS:-1}
+      ENABLE_TELEMETRY: ${ENABLE_TELEMETRY:-false}
+      DISABLE_HOSTED_CLOUD: ${DISABLE_HOSTED_CLOUD:-true}
+      MPS_API_URL: ${MPS_API_URL:-}
+      HOSTED_MPS_SECRET_KEY: ${HOSTED_MPS_SECRET_KEY:-}
+
+      VOICE_RUNTIME: ${VOICE_RUNTIME:-pipecat}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      LIVEKIT_AGENT_NAME: ${LIVEKIT_AGENT_NAME:-spx-voice}
+      LIVEKIT_ROOM_PREFIX: ${LIVEKIT_ROOM_PREFIX:-spx-voice}
+      LIVEKIT_SIP_OUTBOUND_TRUNK_ID: ${LIVEKIT_SIP_OUTBOUND_TRUNK_ID:-}
+      LIVEKIT_SIP_DEFAULT_FROM_NUMBER: ${LIVEKIT_SIP_DEFAULT_FROM_NUMBER:-}
+      LIVEKIT_SIP_INBOUND_HOST: ${LIVEKIT_SIP_INBOUND_HOST:-}
+      LIVEKIT_WORKER_MANAGED_BY_API: ${LIVEKIT_WORKER_MANAGED_BY_API:-false}
+
+      SPX_VOICE_POST_CALL_WEBHOOK_URL: ${SPX_VOICE_POST_CALL_WEBHOOK_URL:-}
+      SPX_VOICE_RECORDINGS_S3_ENDPOINT_URL: ${SPX_VOICE_RECORDINGS_S3_ENDPOINT_URL:-}
+      SPX_VOICE_RECORDINGS_S3_BUCKET: ${SPX_VOICE_RECORDINGS_S3_BUCKET:-}
+      SPX_VOICE_RECORDINGS_S3_ACCESS_KEY_ID: ${SPX_VOICE_RECORDINGS_S3_ACCESS_KEY_ID:-}
+      SPX_VOICE_RECORDINGS_S3_SECRET_ACCESS_KEY: ${SPX_VOICE_RECORDINGS_S3_SECRET_ACCESS_KEY:-}
+      SPX_VOICE_RECORDINGS_PUBLIC_BASE_URL: ${SPX_VOICE_RECORDINGS_PUBLIC_BASE_URL:-}
+
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      POSTHOG_API_KEY: ${POSTHOG_API_KEY:-}
+      POSTHOG_HOST: ${POSTHOG_HOST:-}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health').read()\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      BACKEND_URL: http://api:8000
+      NODE_ENV: production
+      NEXT_PUBLIC_NODE_ENV: oss
+      ENABLE_TELEMETRY: ${ENABLE_TELEMETRY:-false}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      POSTHOG_KEY: ${POSTHOG_KEY:-}
+      POSTHOG_HOST: ${POSTHOG_HOST:-}
+      POSTHOG_UI_HOST: ${POSTHOG_UI_HOST:-}
+      NEXT_PUBLIC_CHATWOOT_URL: ${NEXT_PUBLIC_CHATWOOT_URL:-}
+      NEXT_PUBLIC_CHATWOOT_TOKEN: ${NEXT_PUBLIC_CHATWOOT_TOKEN:-}
+    expose:
+      - "3010"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  api-runtime:
+  shared-tmp:

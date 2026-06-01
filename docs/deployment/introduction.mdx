@@ -1,0 +1,26 @@
+---
+title: "Deployments"
+description: "Deploy SPX Voice on Coolify or with Docker Compose."
+---
+
+SPX Voice is designed to be self-hosted. The simplest production path is
+Coolify with the dedicated `docker-compose.coolify.yaml` file.
+
+## Recommended Path
+
+- [Coolify](/deployment/coolify): production-friendly, domain-managed, single
+  Compose deployment.
+- [Docker](/deployment/docker): local Docker usage and manual Compose notes.
+- [Scaling](/deployment/scaling): worker sizing and operational notes.
+
+## What Coolify Handles
+
+Coolify should own HTTPS, domain routing, certificate renewal, restarts, and
+build orchestration. Do not combine Coolify with the old nginx/certbot remote
+deployment flow.
+
+## When To Use Manual Docker
+
+Use manual Docker only when you are running SPX Voice on your own server without
+a platform proxy. For most public deployments, Coolify is easier and less
+fragile.

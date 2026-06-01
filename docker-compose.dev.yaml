@@ -1,0 +1,75 @@
+services:
+  api:
+    image: ${REGISTRY:-spxvoice}/spx-voice-api:latest
+    command: >
+      bash -lc "python -m pip install --no-cache-dir
+      pypdf==6.12.1
+      livekit-api==1.1.0
+      livekit-agents==1.5.13
+      livekit-plugins-openai==1.5.13
+      livekit-plugins-google==1.5.13
+      livekit-plugins-silero==1.5.13 &&
+      python -m alembic -c /app/api/alembic.ini upgrade head &&
+      (python -m arq api.tasks.arq.WorkerSettings --custom-log-dict api.tasks.arq.LOG_CONFIG &) &&
+      python -m uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir api"
+    pull_policy: missing
+    volumes:
+      - ./api:/app/api
+      - api_runtime:/app/api/.runtime
+      - ./docs:/app/docs:ro
+    environment:
+      LOG_LEVEL: "${LOG_LEVEL:-DEBUG}"
+      UI_APP_URL: "${UI_APP_URL:-http://localhost:3010}"
+      ALLOW_PUBLIC_SIGNUP: "${ALLOW_PUBLIC_SIGNUP:-false}"
+      SINGLE_ORGANIZATION_MODE: "${SINGLE_ORGANIZATION_MODE:-true}"
+      MANAGED_ORGANIZATION_PROVIDER_ID: "${MANAGED_ORGANIZATION_PROVIDER_ID:-managed_single_org}"
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
+      DISABLE_HOSTED_CLOUD: "${DISABLE_HOSTED_CLOUD:-true}"
+      MPS_API_URL: "${MPS_API_URL:-}"
+      HOSTED_MPS_SECRET_KEY: "${HOSTED_MPS_SECRET_KEY:-}"
+      LIVEKIT_WORKER_MANAGED_BY_API: "${LIVEKIT_WORKER_MANAGED_BY_API:-true}"
+      POSTHOG_API_KEY: "${POSTHOG_API_KEY:-}"
+      POSTHOG_HOST: "${POSTHOG_HOST:-}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      DEFAULT_INBOUND_CONCURRENCY_LIMIT: "${DEFAULT_INBOUND_CONCURRENCY_LIMIT:-4}"
+      INBOUND_QUEUE_MAX_WAIT_SECONDS: "${INBOUND_QUEUE_MAX_WAIT_SECONDS:-180}"
+      INBOUND_QUEUE_RETRY_SECONDS: "${INBOUND_QUEUE_RETRY_SECONDS:-10}"
+      INBOUND_QUEUE_HOLD_RATE_PAISE_PER_MINUTE: "${INBOUND_QUEUE_HOLD_RATE_PAISE_PER_MINUTE:-80}"
+      INBOUND_AGENT_RATE_PAISE_PER_MINUTE: "${INBOUND_AGENT_RATE_PAISE_PER_MINUTE:-350}"
+      DEFAULT_WALLET_OVERDRAFT_LIMIT_PAISE: "${DEFAULT_WALLET_OVERDRAFT_LIMIT_PAISE:--50000}"
+      USD_INR_RATE: "${USD_INR_RATE:-95.8945}"
+      USD_INR_RATE_SOURCE_URL: "${USD_INR_RATE_SOURCE_URL:-https://www.xe.com/currencyconverter/convert/?Amount=1&From=USD&To=INR}"
+      USD_INR_RATE_SOURCE_LAST_CHECKED: "${USD_INR_RATE_SOURCE_LAST_CHECKED:-2026-05-22}"
+
+  ui:
+    image: node:24-slim
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --hostname 0.0.0.0 --port 3010"
+    pull_policy: missing
+    volumes:
+      - ./ui:/app
+      - ui_node_modules:/app/node_modules
+    environment:
+      BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
+      NEXT_PUBLIC_NODE_ENV: "development"
+      POSTHOG_KEY: "${POSTHOG_KEY:-}"
+      POSTHOG_HOST: "${POSTHOG_HOST:-}"
+      POSTHOG_UI_HOST: "${POSTHOG_UI_HOST:-}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      NEXT_PUBLIC_CHATWOOT_URL: "${NEXT_PUBLIC_CHATWOOT_URL:-}"
+      NEXT_PUBLIC_CHATWOOT_TOKEN: "${NEXT_PUBLIC_CHATWOOT_TOKEN:-}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://localhost:3010').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  api_runtime:
+  ui_node_modules:

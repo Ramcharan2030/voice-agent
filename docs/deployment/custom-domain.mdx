@@ -1,0 +1,16 @@
+---
+title: "Custom Domain"
+description: "Custom domain guidance for SPX Voice."
+---
+
+For new deployments, use [Coolify](/deployment/coolify). Coolify should own the
+domain, HTTPS certificates, renewal, and routing to the `ui` service on port
+`3010`.
+
+The old host-level nginx/certbot deployment flow is not recommended for SPX
+Voice because it conflicts with Coolify-managed domains and can overwrite fork
+specific deployment files.
+
+If you are not using Coolify, you may adapt `docker-compose.yaml` manually and
+put your own reverse proxy in front of the `ui` service. In that case you own
+certificate renewal, proxy headers, WebSocket forwarding, and firewall rules.

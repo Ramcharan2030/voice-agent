@@ -1,0 +1,93 @@
+---
+title: "MCP Server"
+description: "Connect Claude and other AI assistants to your SPX Voice workspace via the Model Context Protocol"
+---
+
+## Overview
+
+SPX Voice exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that lets AI assistants like Claude Code, Claude Desktop, and Cursor access your workspace and documentation. Once connected, an assistant can list your agents, fetch agent definitions, and search SPX Voice docs on your behalf.
+
+## Prerequisites
+
+- A SPX Voice API key. Generate one from `/api-keys` in your SPX Voice dashboard. See [API Keys](/configurations/api-keys).
+- Your SPX Voice MCP endpoint:
+  - Coolify or self-hosted: `https://your-spx-voice-domain/api/v1/mcp/`
+  - Local development: `http://localhost:8000/api/v1/mcp/`
+
+The endpoint is also shown in **Platform Settings → MCP Server** inside the SPX Voice UI.
+
+<Note>
+For Coolify deployments, point MCP clients at the same public domain you assigned to the UI service. Coolify terminates HTTPS for that domain.
+</Note>
+
+## Claude Code
+
+Register SPX Voice as an MCP server with the Claude Code CLI:
+
+```bash
+claude mcp add --transport http spx-voice https://your-spx-voice-domain/api/v1/mcp/ \
+  --header "X-API-Key: YOUR_API_KEY"
+```
+
+Replace `YOUR_API_KEY` with the key you generated. For self-hosted deployments, swap the URL for your backend.
+
+Verify the server is connected:
+
+```bash
+claude mcp list
+```
+
+## Claude Desktop
+
+Open Claude Desktop's config file (`claude_desktop_config.json`) and add the `spx-voice` entry under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "spx-voice": {
+      "url": "https://your-spx-voice-domain/api/v1/mcp/",
+      "headers": {
+        "X-API-Key": "YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. The SPX Voice tools should appear in the tool picker.
+
+## Cursor and other MCP clients
+
+Any MCP client that supports Streamable HTTP transport can connect with the same URL and header. Paste the configuration above into your client's MCP settings file and replace `YOUR_API_KEY`.
+
+## Example prompts
+
+Once the MCP server is connected, you can drive SPX Voice from your coding agent in plain English. A few prompts to try:
+
+**Explore your workspace**
+
+- "List my agents in SPX Voice."
+- "Show me the definition of the agent called *Lead Qualifier*."
+- "Which credentials and tools are configured in my SPX Voice workspace?"
+- "List the recordings from my most recent agent."
+
+**Edit an agent**
+
+- "In my *Lead Qualifier* agent, add a new agent node after the greeting that asks the caller for their budget, then routes to the existing qualification node."
+- "Add an end-call node to *Support Bot* that triggers when the user says they are done, with a polite goodbye prompt."
+- "Rename the *intro* node in *Lead Qualifier* to *greeting* and update any edges that reference it."
+- "Change the LLM model on all agent nodes in *Support Bot* to `gpt-4o-mini`."
+
+**Learn the platform**
+
+- "Search the SPX Voice docs for how to configure a TURN server."
+- "What node types does SPX Voice support, and what fields does a `knowledge_base` node take?"
+- "How do I deploy SPX Voice on a custom domain with HTTPS?"
+
+<Note>
+Agent edits are saved as a new **draft** version — your published agent keeps serving calls until you explicitly publish the draft from the SPX Voice UI.
+</Note>
+
+<Note>
+The API key controls which workspace the assistant sees. Treat it like any other credential — do not commit it to source control or paste it into shared chats.
+</Note>

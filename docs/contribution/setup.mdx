@@ -1,0 +1,138 @@
+---
+title: Setup
+description: Set up SPX Voice for local development.
+---
+
+## Requirements
+
+- Git
+- Docker with Docker Compose v2
+- Node.js 24
+- Python 3.13
+
+## Clone
+
+Clone your SPX Voice repository:
+
+```bash
+git clone https://github.com/<YOUR_ORG_OR_USER>/<YOUR_SPX_VOICE_REPO>.git
+cd <YOUR_SPX_VOICE_REPO>
+git submodule update --init --recursive
+```
+
+SPX Voice is upstream-compatible internally, so maintainers may also keep an
+`upstream` remote that points at the upstream project for selective imports:
+
+```bash
+git remote add upstream <upstream-repository-url>
+```
+
+Read [Upstream Compatibility](/developer/upstream-compatibility)
+before merging or cherry-picking upstream changes.
+
+## One-Command Docker Development
+
+```bash
+cp .env.example .env
+bash start.sh
+```
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+.\start.ps1
+```
+
+Open:
+
+```text
+http://localhost:3010
+```
+
+## Direct Backend And UI Development
+
+Start local data services:
+
+```bash
+docker compose -f docker-compose-local.yaml up -d
+```
+
+Create backend env and install requirements:
+
+```bash
+cp api/.env.example api/.env
+bash scripts/setup_requirements.sh --dev
+source venv/bin/activate
+```
+
+PowerShell:
+
+```powershell
+Copy-Item api/.env.example api/.env
+.\scripts\setup_requirements.ps1 -Dev
+.\venv\Scripts\Activate.ps1
+```
+
+Start backend services:
+
+```bash
+bash scripts/start_services_dev.sh
+```
+
+PowerShell:
+
+```powershell
+.\scripts\start_services_dev.ps1
+```
+
+Start the UI:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+The direct dev UI runs at:
+
+```text
+http://localhost:3000
+```
+
+The Docker quick-start UI runs at:
+
+```text
+http://localhost:3010
+```
+
+## Useful Checks
+
+Backend health:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+Stop local data services:
+
+```bash
+docker compose -f docker-compose-local.yaml down
+```
+
+Remove local data volumes:
+
+```bash
+docker compose -f docker-compose-local.yaml down -v
+```
+
+## Cleanup Rules
+
+Do not commit:
+
+- `.env`, `api/.env`, or `ui/.env`
+- `node_modules/`
+- `.next/`
+- Python caches
+- runtime logs
+- recordings, chunks, transcripts, or local `.tmp` data

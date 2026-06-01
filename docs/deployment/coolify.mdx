@@ -1,0 +1,182 @@
+---
+title: "Coolify"
+description: "Deploy SPX Voice on Coolify with a single Docker Compose file."
+---
+
+This is the recommended deployment path for SPX Voice.
+
+Coolify builds the API and UI images from this repository, runs Postgres, Redis,
+and MinIO as internal services, and exposes only the UI container through
+Coolify's domain proxy.
+
+## Before You Start
+
+You need:
+
+- A Coolify instance with Docker available.
+- A Git repository containing SPX Voice.
+- A domain or subdomain pointed at your Coolify server.
+- At least 8 GB RAM and 4 vCPUs for a comfortable first deployment.
+
+<Warning>
+Do not commit `.env`, `api/.env`, `ui/.env`, recordings, transcripts, cache
+directories, or local runtime output. The Coolify deployment should be configured
+with Coolify environment variables.
+</Warning>
+
+## 1. Create The Coolify Resource
+
+1. Open Coolify.
+2. Create a new resource.
+3. Choose your SPX Voice Git repository.
+4. Select **Docker Compose** as the build/deploy type.
+5. Set the Compose file path to:
+
+```text
+docker-compose.coolify.yaml
+```
+
+## 2. Set The Domain
+
+Attach your public domain to the `ui` service on port `3010`.
+
+Example:
+
+```text
+https://voice.example.com
+```
+
+Coolify terminates HTTPS and forwards traffic to the UI. The UI proxies API
+requests to the internal `api:8000` service, so you do not need to expose the
+API as a separate public service for normal dashboard usage.
+
+## 3. Set Required Environment Variables
+
+Set these in Coolify before the first deploy:
+
+```env
+APP_URL=https://voice.example.com
+POSTGRES_PASSWORD=generate-a-long-random-value
+REDIS_PASSWORD=generate-a-long-random-value
+MINIO_ROOT_PASSWORD=generate-a-long-random-value
+OSS_JWT_SECRET=generate-a-long-random-value
+```
+
+Recommended defaults:
+
+```env
+ALLOW_PUBLIC_SIGNUP=false
+SINGLE_ORGANIZATION_MODE=true
+MANAGED_ORGANIZATION_PROVIDER_ID=managed_single_org
+ENABLE_TELEMETRY=false
+DISABLE_HOSTED_CLOUD=true
+VOICE_RUNTIME=pipecat
+```
+
+Coolify may also provide a generated service URL for the UI. Setting `APP_URL`
+explicitly is still recommended because it keeps public links, storage links,
+and callback URLs predictable.
+
+## 4. Deploy
+
+Click **Deploy** in Coolify.
+
+The first deploy builds both images, runs database migrations, starts background
+workers, then starts the API and UI.
+
+After the health checks pass, open your domain:
+
+```text
+https://voice.example.com
+```
+
+The first user who signs up becomes the bootstrap superadmin. After that, public
+signup remains disabled unless you set `ALLOW_PUBLIC_SIGNUP=true`.
+
+## 5. Optional LiveKit Setup
+
+SPX Voice can run with Pipecat or LiveKit.
+
+For browser testing and simple local usage, keep:
+
+```env
+VOICE_RUNTIME=pipecat
+```
+
+For LiveKit, provide:
+
+```env
+VOICE_RUNTIME=livekit
+LIVEKIT_URL=wss://your-livekit-host
+LIVEKIT_CLIENT_URL=wss://your-livekit-host
+LIVEKIT_API_KEY=your-livekit-api-key
+LIVEKIT_API_SECRET=your-livekit-api-secret
+LIVEKIT_AGENT_NAME=spx-voice
+LIVEKIT_ROOM_PREFIX=spx-voice
+```
+
+For SIP calls, also configure your telephony provider and LiveKit SIP settings
+in the UI.
+
+<Note>
+TURN/coturn is not included in the Coolify compose file. If your deployment
+needs a dedicated TURN server for WebRTC through restrictive networks, run TURN
+as separate infrastructure and set `TURN_HOST`, `TURN_SECRET`, and related
+variables.
+</Note>
+
+## Storage Notes
+
+The Coolify compose includes MinIO for recordings and uploaded audio. It is
+internal to the stack by default.
+
+For production teams with existing object storage, use S3-compatible storage
+instead of the bundled MinIO by setting:
+
+```env
+ENABLE_AWS_S3=true
+S3_BUCKET=your-bucket
+S3_REGION=your-region
+```
+
+You can also use the `SPX_VOICE_RECORDINGS_*` variables for LiveKit egress
+recording storage.
+
+## Updating
+
+To update SPX Voice:
+
+1. Pull or merge the desired changes into your repository.
+2. Redeploy the Coolify resource.
+3. Watch API logs for migration output.
+4. Open `/api/v1/health` through the app domain if you need a direct health
+   check:
+
+```text
+https://voice.example.com/api/v1/health
+```
+
+Before importing upstream changes, read
+`/developer/upstream-compatibility`.
+
+## Troubleshooting
+
+### UI is up but API calls fail
+
+Check that `BACKEND_URL` inside the `ui` service is `http://api:8000`. The
+provided compose file sets this automatically.
+
+### Public links point to localhost
+
+Set `APP_URL` in Coolify to your real domain, including `https://`.
+
+### First deploy is slow
+
+This is normal. Coolify builds Python, Pipecat, Node, and Next.js images from
+source on the first deploy.
+
+### Voice calls connect but audio fails
+
+If you are using browser WebRTC across restrictive networks, configure external
+TURN infrastructure. If you are using LiveKit, verify LiveKit ingress/SIP and
+network settings separately from Coolify.

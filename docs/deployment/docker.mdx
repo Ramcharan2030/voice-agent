@@ -1,0 +1,102 @@
+---
+title: "Docker"
+description: "Run SPX Voice with Docker Compose."
+---
+
+Use Docker when you want to run SPX Voice on your own machine or on a server you
+manage directly. For hosted production deployments with automatic HTTPS and
+domain management, use [Coolify](/deployment/coolify).
+
+## Local Quick Start
+
+From a checkout of this repository:
+
+```bash
+cp .env.example .env
+bash start.sh
+```
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+.\start.ps1
+```
+
+The local launcher starts the Docker Compose stack and mounts local source into
+the API/UI containers. This is convenient for development and testing.
+
+Open:
+
+```text
+http://localhost:3010
+```
+
+## Manual Local Compose
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --pull missing
+```
+
+Stop the stack:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml down
+```
+
+Delete local volumes:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml down -v
+```
+
+## Production Compose
+
+For Coolify, use:
+
+```text
+docker-compose.coolify.yaml
+```
+
+That file builds images from this repo, avoids host port bindings for internal
+services, and exposes only the UI service for Coolify's proxy.
+
+For a direct server deployment without Coolify, you may adapt
+`docker-compose.yaml`, but you are responsible for HTTPS, DNS, TURN, firewall
+rules, and certificate renewal.
+
+## Required Production Values
+
+Never deploy with placeholder secrets. Set at least:
+
+```env
+APP_URL=https://voice.example.com
+POSTGRES_PASSWORD=generate-a-long-random-value
+REDIS_PASSWORD=generate-a-long-random-value
+MINIO_ROOT_PASSWORD=generate-a-long-random-value
+OSS_JWT_SECRET=generate-a-long-random-value
+```
+
+Keep hosted services and telemetry off unless you intentionally configure them:
+
+```env
+ENABLE_TELEMETRY=false
+DISABLE_HOSTED_CLOUD=true
+```
+
+## WebRTC And TURN
+
+The local Docker stack is enough for dashboard usage and most local browser
+tests.
+
+For public WebRTC through restrictive networks, you may need TURN. Coolify
+should not run the old nginx/certbot/coturn remote flow. Run TURN separately and
+configure:
+
+```env
+TURN_HOST=turn.example.com
+TURN_SECRET=generate-a-long-random-value
+```
+
+LiveKit deployments should follow your LiveKit server and SIP provider network
+requirements.

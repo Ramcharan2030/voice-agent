@@ -1,0 +1,31 @@
+---
+title: "Update"
+description: "Update an SPX Voice deployment."
+---
+
+## Coolify
+
+1. Push or merge changes into your SPX Voice repository.
+2. Open the Coolify resource.
+3. Click **Redeploy**.
+4. Watch the API logs for database migration output.
+5. Open your app domain and confirm `/api/v1/health` succeeds.
+
+## Manual Docker
+
+From the repository checkout:
+
+```bash
+git pull
+git submodule update --init --recursive
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+```
+
+## Upstream Updates
+
+SPX Voice keeps some upstream-compatible internals so upstream fixes can be
+imported. Before merging upstream changes, read
+[Upstream Compatibility](/developer/upstream-compatibility).
+
+Do not run old upstream update scripts against this fork. They can
+overwrite SPX Voice compose files, docs, and fork-specific defaults.

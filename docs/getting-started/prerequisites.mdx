@@ -1,0 +1,75 @@
+---
+title: "Prerequisites"
+description: "System requirements for running SPX Voice."
+---
+
+## Local Development
+
+Minimum:
+
+- 8 GB RAM
+- 10 GB free disk
+- 2 CPU cores
+- Docker with Docker Compose v2
+- Git
+
+Recommended:
+
+- 16 GB RAM
+- 4 CPU cores
+- Node.js 24 for direct UI development
+- Python 3.13 for direct backend development
+
+## Coolify Deployment
+
+Recommended:
+
+- Coolify running on a server with Docker
+- 8 GB RAM minimum, 16 GB preferred
+- 4 vCPUs preferred
+- A domain or subdomain pointed at Coolify
+- Enough disk for Docker build cache, Postgres, Redis, and MinIO volumes
+
+Coolify should expose only the `ui` service on port `3010`. Postgres, Redis,
+MinIO, and the API stay on the internal Docker network.
+
+## Local Ports
+
+The local Docker stack uses:
+
+- `3010` - Web UI
+- `8000` - API
+- `5432` - Postgres
+- `6379` - Redis
+- `9000` - MinIO API
+- `9001` - MinIO console
+
+Coolify deployments do not need those host ports published.
+
+## Check Port Availability
+
+macOS/Linux:
+
+```bash
+lsof -i :3010
+```
+
+Windows PowerShell:
+
+```powershell
+netstat -ano | findstr :3010
+```
+
+## Secrets
+
+Generate strong values for production:
+
+```env
+POSTGRES_PASSWORD=...
+REDIS_PASSWORD=...
+MINIO_ROOT_PASSWORD=...
+OSS_JWT_SECRET=...
+```
+
+Do not commit `.env`, `api/.env`, `ui/.env`, cache directories, recordings, or
+transcripts.

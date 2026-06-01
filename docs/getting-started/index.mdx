@@ -1,0 +1,57 @@
+---
+title: "Introduction"
+---
+
+## About SPX Voice
+
+SPX Voice is an open-source voice AI platform for building and deploying
+conversational agents. It includes a workflow builder, FastAPI backend, Next.js
+dashboard, telephony integrations, Pipecat runtime support, and optional LiveKit
+support.
+
+SPX Voice is a cleaned fork with some SPX Voice-compatible internals retained so
+future upstream fixes can be imported without a full rewrite. Public setup and
+deployment instructions in these docs are for SPX Voice.
+
+## Fastest Local Setup
+
+From a checkout of this repository:
+
+```bash
+cp .env.example .env
+bash start.sh
+```
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+.\start.ps1
+```
+
+Open the dashboard:
+
+```text
+http://localhost:3010
+```
+
+The first signup creates the bootstrap superadmin. After that, public signup is
+disabled unless `ALLOW_PUBLIC_SIGNUP=true`.
+
+## Production Setup
+
+For a hosted deployment, use [Coolify](/deployment/coolify) with:
+
+```text
+docker-compose.coolify.yaml
+```
+
+Coolify should own your public domain and HTTPS. Set `APP_URL` to your public
+domain in Coolify.
+
+## Next Steps
+
+- Check [Prerequisites](/getting-started/prerequisites).
+- Configure model, voice, and transcription providers in
+  [Inference Providers](/configurations/inference-providers).
+- Deploy publicly with [Coolify](/deployment/coolify).

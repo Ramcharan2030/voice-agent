@@ -1,0 +1,63 @@
+---
+title: "Scaling"
+description: "Scale SPX Voice workers and background jobs."
+---
+
+SPX Voice starts one API container by default. Inside that container the startup
+script can run multiple uvicorn processes, controlled by `FASTAPI_WORKERS`, and
+multiple ARQ workers, controlled by `ARQ_WORKERS`.
+
+## Coolify Default
+
+The Coolify compose file uses:
+
+```env
+FASTAPI_WORKERS=1
+ARQ_WORKERS=1
+```
+
+This is intentional. Coolify proxies traffic directly to the `ui` service, and
+the UI proxies API requests to the internal `api:8000` service. Without an
+extra internal load balancer, only the first API port should be used.
+
+For most small deployments, scale the server vertically first: more CPU, more
+RAM, and faster disk.
+
+## Background Workers
+
+If scheduled jobs or post-call work backs up, increase:
+
+```env
+ARQ_WORKERS=2
+```
+
+Then redeploy. Watch Redis and API logs after the change.
+
+## API Workers
+
+`FASTAPI_WORKERS` starts independent uvicorn processes on consecutive ports:
+
+```text
+8000, 8001, 8002, ...
+```
+
+Only increase this when your deployment has a proxy that knows how to route to
+all worker ports. The legacy nginx profile in `docker-compose.yaml` can do that
+for manual server deployments, but the Coolify compose intentionally does not
+include that complexity.
+
+## Storage And Database
+
+For larger production usage, prefer managed infrastructure:
+
+- Managed Postgres instead of bundled Postgres.
+- Managed Redis instead of bundled Redis.
+- S3-compatible object storage instead of bundled MinIO.
+
+Then set `DATABASE_URL`, `REDIS_URL`, and storage variables accordingly.
+
+## Voice Runtime
+
+Live voice workloads are usually constrained by model providers, telephony
+providers, network latency, and WebRTC/TURN behavior before ordinary HTTP
+throughput. Measure real calls before increasing worker counts.

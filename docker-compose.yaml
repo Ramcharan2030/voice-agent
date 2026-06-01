@@ -1,0 +1,303 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    command: >
+      --requirepass redissecret
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    ports:
+      - "127.0.0.1:9000:9000" # Bind to localhost explicitly
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  spx-voice-init:
+    image: bash:5.2
+    container_name: spx_voice_init
+    profiles: ["remote", "local-turn"]
+    environment:
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
+      SERVER_IP: "${SERVER_IP:-}"
+      PUBLIC_HOST: "${PUBLIC_HOST:-}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      TURN_HOST: "${TURN_HOST:-}"
+      TURN_SECRET: "${TURN_SECRET:-}"
+      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+      - ./deploy:/workspace/deploy:ro
+      - ./certs:/certs:ro
+      - nginx-generated:/generated/nginx
+      - coturn-generated:/generated/coturn
+    command:
+      - /workspace/scripts/run_spx_voice_init.sh
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_https
+    profiles: ["remote"]
+    depends_on:
+      spx-voice-init:
+        condition: service_completed_successfully
+      ui:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nginx-generated:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - app-network
+
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    restart: unless-stopped
+    profiles: ["remote", "local-turn"]
+    depends_on:
+      spx-voice-init:
+        condition: service_completed_successfully
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - coturn-generated:/etc/coturn:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    networks:
+      - app-network
+
+  api:
+    image: ${REGISTRY:-spxvoice}/spx-voice-api:latest
+    volumes:
+      - shared-tmp:/tmp
+      - api-runtime:/app/api/.runtime
+    environment:
+      # Core application config
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
+      LOG_LEVEL: "INFO"
+
+      # Replace this environment variable if you are using a custom
+      # domain to host the stack
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+
+      # Database configuration. Defaults to the bundled Postgres container,
+      # but can point at your own managed/self-hosted Postgres.
+      DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/postgres}"
+
+      # Redis configuration (using containerized redis)
+      REDIS_URL: "redis://:redissecret@redis:6379"
+
+      # Storage configuration - using local MinIO
+      ENABLE_AWS_S3: "false"
+
+      # MinIO
+      MINIO_ENDPOINT: "minio:9000"
+      # Full URL (with scheme) browsers use to reach MinIO. For remote
+      # deployments behind HTTPS, set MINIO_PUBLIC_ENDPOINT in .env to
+      # e.g. https://your-server.example.com (nginx proxies /voice-audio/).
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "voice-audio"
+      MINIO_SECURE: "false"
+
+      # Number of uvicorn worker processes (each is its own process bound to a
+      # distinct port starting at 8000). spx-voice-init renders nginx upstreams
+      # from this value and nginx load-balances across them with least_conn.
+      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+
+      # Langfuse — credentials can be set here or per-organization via the UI
+      # at /settings. Tracing is automatically active when credentials are
+      # available; uncomment to set defaults for all organizations.
+      # LANGFUSE_SECRET_KEY: ""
+      # LANGFUSE_PUBLIC_KEY: ""
+      # LANGFUSE_HOST: ""
+
+      # TURN server configuration (for WebRTC NAT traversal in remote server)
+      # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
+      TURN_HOST: "${TURN_HOST:-}"
+      TURN_SECRET: "${TURN_SECRET:-}"
+      FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
+
+      # Voice runtime toggle. Keep the default as Pipecat; set VOICE_RUNTIME=livekit
+      # with your self-hosted LiveKit URL/key/secret to run the LiveKit worker.
+      VOICE_RUNTIME: "${VOICE_RUNTIME:-pipecat}"
+      LIVEKIT_URL: "${LIVEKIT_URL:-}"
+      LIVEKIT_CLIENT_URL: "${LIVEKIT_CLIENT_URL:-}"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-}"
+      LIVEKIT_AGENT_NAME: "${LIVEKIT_AGENT_NAME:-spx-voice}"
+      LIVEKIT_ROOM_PREFIX: "${LIVEKIT_ROOM_PREFIX:-spx-voice}"
+      LIVEKIT_TOKEN_TTL_SECONDS: "${LIVEKIT_TOKEN_TTL_SECONDS:-3600}"
+      LIVEKIT_SIP_OUTBOUND_TRUNK_ID: "${LIVEKIT_SIP_OUTBOUND_TRUNK_ID:-}"
+      LIVEKIT_SIP_DEFAULT_FROM_NUMBER: "${LIVEKIT_SIP_DEFAULT_FROM_NUMBER:-}"
+      LIVEKIT_SIP_INBOUND_HOST: "${LIVEKIT_SIP_INBOUND_HOST:-}"
+      LIVEKIT_SIP_MAX_CALL_DURATION_SECONDS: "${LIVEKIT_SIP_MAX_CALL_DURATION_SECONDS:-1800}"
+      LIVEKIT_WORKER_MANAGED_BY_API: "${LIVEKIT_WORKER_MANAGED_BY_API:-false}"
+
+      # Optional post-call tracking and LiveKit egress recording.
+      SPX_VOICE_POST_CALL_WEBHOOK_URL: "${SPX_VOICE_POST_CALL_WEBHOOK_URL:-}"
+      SPX_VOICE_RECORDINGS_S3_ENDPOINT_URL: "${SPX_VOICE_RECORDINGS_S3_ENDPOINT_URL:-}"
+      SPX_VOICE_RECORDINGS_S3_BUCKET: "${SPX_VOICE_RECORDINGS_S3_BUCKET:-}"
+      SPX_VOICE_RECORDINGS_S3_ACCESS_KEY_ID: "${SPX_VOICE_RECORDINGS_S3_ACCESS_KEY_ID:-}"
+      SPX_VOICE_RECORDINGS_S3_SECRET_ACCESS_KEY: "${SPX_VOICE_RECORDINGS_S3_SECRET_ACCESS_KEY:-}"
+      SPX_VOICE_RECORDINGS_S3_REGION: "${SPX_VOICE_RECORDINGS_S3_REGION:-us-east-1}"
+      SPX_VOICE_RECORDINGS_S3_FORCE_PATH_STYLE: "${SPX_VOICE_RECORDINGS_S3_FORCE_PATH_STYLE:-false}"
+      SPX_VOICE_RECORDINGS_PUBLIC_BASE_URL: "${SPX_VOICE_RECORDINGS_PUBLIC_BASE_URL:-}"
+      SPX_VOICE_RECORDINGS_KEY_PREFIX: "${SPX_VOICE_RECORDINGS_KEY_PREFIX:-SPX-VOICE-INBOUND}"
+
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
+      ALLOW_PUBLIC_SIGNUP: "${ALLOW_PUBLIC_SIGNUP:-false}"
+      SINGLE_ORGANIZATION_MODE: "${SINGLE_ORGANIZATION_MODE:-true}"
+      MANAGED_ORGANIZATION_PROVIDER_ID: "${MANAGED_ORGANIZATION_PROVIDER_ID:-managed_single_org}"
+
+      # Hosted cloud services are disabled by default for production forks.
+      DISABLE_HOSTED_CLOUD: "${DISABLE_HOSTED_CLOUD:-true}"
+      MPS_API_URL: "${MPS_API_URL:-}"
+      HOSTED_MPS_SECRET_KEY: "${HOSTED_MPS_SECRET_KEY:-}"
+
+      # Optional observability. Provide your own keys/hosts when needed.
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
+      POSTHOG_API_KEY: "${POSTHOG_API_KEY:-}"
+      POSTHOG_HOST: "${POSTHOG_HOST:-}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      cloudflared:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app-network
+
+  ui:
+    image: ${REGISTRY:-spxvoice}/spx-voice-ui:latest
+    environment:
+      # Server-side URL (SSR, internal Docker network)
+      BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      NODE_ENV: "oss"
+      # Optional observability. Provide your own keys/hosts when needed.
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+
+      POSTHOG_KEY: "${POSTHOG_KEY:-}"
+      POSTHOG_HOST: "${POSTHOG_HOST:-}"
+      POSTHOG_UI_HOST: "${POSTHOG_UI_HOST:-}"
+      NEXT_PUBLIC_CHATWOOT_URL: "${NEXT_PUBLIC_CHATWOOT_URL:-}"
+      NEXT_PUBLIC_CHATWOOT_TOKEN: "${NEXT_PUBLIC_CHATWOOT_TOKEN:-}"
+    ports:
+      - "3010:3010"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - app-network
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
+    ports:
+      - "2000:2000" # Expose metrics endpoint
+    networks:
+      - app-network
+
+volumes:
+  api-runtime:
+    driver: local
+  postgres_data:
+  redis_data:
+  minio-data:
+    driver: local
+  shared-tmp:
+    driver: local
+  nginx-generated:
+    driver: local
+  coturn-generated:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

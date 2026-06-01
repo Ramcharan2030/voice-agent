@@ -1,0 +1,144 @@
+---
+title: "Environment Variables"
+description: "Environment variables used by SPX Voice."
+---
+
+SPX Voice reads runtime configuration from environment variables. For Coolify,
+set these in the Coolify resource. For local Docker, copy `.env.example` to
+`.env` and edit it.
+
+## Required For Production
+
+Set strong values before deploying publicly:
+
+```env
+APP_URL=https://voice.example.com
+POSTGRES_PASSWORD=generate-a-long-random-value
+REDIS_PASSWORD=generate-a-long-random-value
+MINIO_ROOT_PASSWORD=generate-a-long-random-value
+OSS_JWT_SECRET=generate-a-long-random-value
+```
+
+## Application
+
+| Variable | Default | Description |
+|---|---|---|
+| `APP_URL` | generated or local URL | Public application URL. Recommended for Coolify. |
+| `ENVIRONMENT` | `local` | Runtime environment: `local`, `production`, or `test`. |
+| `DEPLOYMENT_MODE` | `oss` | Use `oss` for self-hosted deployments. |
+| `AUTH_PROVIDER` | `local` | Use `local` for self-hosted email/password auth. |
+| `LOG_LEVEL` | `DEBUG` locally, `INFO` in production compose | Backend log level. |
+
+## Authentication
+
+| Variable | Default | Description |
+|---|---|---|
+| `OSS_JWT_SECRET` | placeholder in examples | Required for production. Signs local auth tokens. |
+| `OSS_JWT_EXPIRY_HOURS` | `720` | Token lifetime in hours. |
+| `ALLOW_PUBLIC_SIGNUP` | `false` | Whether anyone can create an account after bootstrap. |
+| `SINGLE_ORGANIZATION_MODE` | `true` | Keep one managed organization for simple deployments. |
+| `MANAGED_ORGANIZATION_PROVIDER_ID` | `managed_single_org` | Stable ID for the managed organization. |
+
+The first user who signs up becomes the bootstrap superadmin. Keep
+`ALLOW_PUBLIC_SIGNUP=false` unless you intentionally want open registration.
+
+## URLs
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKEND_API_ENDPOINT` | local URL | Public base URL used by backend-generated links and callbacks. |
+| `UI_APP_URL` | local URL | Public frontend URL. |
+| `BACKEND_URL` | `http://api:8000` in Docker | Internal URL the Next.js app uses to reach the API. |
+
+In Coolify, set `APP_URL=https://your-domain.example`. The provided compose file
+uses that value for both public backend and UI URLs.
+
+## Database And Queue
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | composed from Postgres settings | Async SQLAlchemy Postgres URL. |
+| `POSTGRES_USER` | `postgres` | Postgres user for bundled database. |
+| `POSTGRES_PASSWORD` | placeholder | Required for bundled Postgres. |
+| `POSTGRES_DB` | `spx_voice` | Bundled Postgres database name. |
+| `REDIS_URL` | composed from Redis password | Redis connection URL. |
+| `REDIS_PASSWORD` | placeholder | Required for bundled Redis. |
+
+## Storage
+
+SPX Voice uses bundled MinIO by default. You can switch to S3-compatible storage
+for production if preferred.
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENABLE_AWS_S3` | `false` | Set `true` to use AWS S3 instead of bundled MinIO. |
+| `MINIO_ENDPOINT` | `minio:9000` in Docker | Internal MinIO endpoint. |
+| `MINIO_PUBLIC_ENDPOINT` | `APP_URL` in Coolify | Public endpoint used for generated links. |
+| `MINIO_ROOT_USER` | `minioadmin` | Root user for bundled MinIO. |
+| `MINIO_ROOT_PASSWORD` | placeholder | Required for bundled MinIO. |
+| `MINIO_BUCKET` | `voice-audio` | Bucket for audio files. |
+| `S3_BUCKET` | unset | S3 bucket when `ENABLE_AWS_S3=true`. |
+| `S3_REGION` | `us-east-1` | S3 region. |
+
+## Hosted Services
+
+| Variable | Default | Description |
+|---|---|---|
+| `DISABLE_HOSTED_CLOUD` | `true` | Keep hosted MPS calls disabled for self-hosted SPX Voice. |
+| `MPS_API_URL` | unset | Optional hosted Managed Platform Services URL. |
+| `HOSTED_MPS_SECRET_KEY` | unset | Secret for hosted MPS calls when enabled. |
+| `ENABLE_TELEMETRY` | `false` | Enables telemetry only if you intentionally configure it. |
+
+## Voice Runtime
+
+| Variable | Default | Description |
+|---|---|---|
+| `VOICE_RUNTIME` | `pipecat` | `pipecat` or `livekit`. |
+| `LIVEKIT_URL` | unset | LiveKit server URL, e.g. `wss://livekit.example.com`. |
+| `LIVEKIT_CLIENT_URL` | unset | Browser-facing LiveKit URL. |
+| `LIVEKIT_API_KEY` | unset | LiveKit API key. |
+| `LIVEKIT_API_SECRET` | unset | LiveKit API secret. |
+| `LIVEKIT_AGENT_NAME` | `spx-voice` | LiveKit agent identity. |
+| `LIVEKIT_ROOM_PREFIX` | `spx-voice` | Prefix for generated LiveKit rooms. |
+| `LIVEKIT_SIP_INBOUND_HOST` | unset | Public SIP host for inbound LiveKit SIP. |
+| `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | unset | LiveKit outbound SIP trunk ID. |
+| `LIVEKIT_SIP_DEFAULT_FROM_NUMBER` | unset | Default caller ID for SIP calls. |
+| `LIVEKIT_WORKER_MANAGED_BY_API` | `false` in production | Lets the API manage a local LiveKit worker process. |
+
+## TURN
+
+TURN is not bundled into the Coolify compose file. Run TURN separately when your
+deployment needs it.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TURN_HOST` | `localhost` | TURN hostname. |
+| `TURN_SECRET` | unset | Shared secret for time-limited TURN credentials. |
+| `TURN_PORT` | `3478` | TURN port. |
+| `TURN_TLS_PORT` | `5349` | TURN TLS port. |
+| `FORCE_TURN_RELAY` | `false` | Diagnostic setting to force relay-only ICE. |
+
+## Optional Observability
+
+| Variable | Default | Description |
+|---|---|---|
+| `LANGFUSE_HOST` | unset | Langfuse host. |
+| `LANGFUSE_PUBLIC_KEY` | unset | Langfuse public key. |
+| `LANGFUSE_SECRET_KEY` | unset | Langfuse secret key. |
+| `SENTRY_DSN` | unset | Sentry DSN. |
+| `POSTHOG_API_KEY` | unset | Backend PostHog key. |
+| `POSTHOG_KEY` | unset | Frontend PostHog key. |
+| `POSTHOG_HOST` | unset | PostHog host. |
+
+## LiveKit Recording Export
+
+| Variable | Default | Description |
+|---|---|---|
+| `SPX_VOICE_POST_CALL_WEBHOOK_URL` | unset | Optional webhook for post-call payloads. |
+| `SPX_VOICE_RECORDINGS_S3_ENDPOINT_URL` | unset | S3-compatible endpoint for LiveKit egress recordings. |
+| `SPX_VOICE_RECORDINGS_S3_BUCKET` | unset | Recording bucket. |
+| `SPX_VOICE_RECORDINGS_S3_ACCESS_KEY_ID` | unset | Recording storage access key. |
+| `SPX_VOICE_RECORDINGS_S3_SECRET_ACCESS_KEY` | unset | Recording storage secret. |
+| `SPX_VOICE_RECORDINGS_PUBLIC_BASE_URL` | unset | Public base URL for recording links. |
+
+Never commit real secrets or private recording URLs.

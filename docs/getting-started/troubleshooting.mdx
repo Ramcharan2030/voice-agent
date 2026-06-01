@@ -1,0 +1,80 @@
+---
+title: "Troubleshooting"
+description: "Common issues and solutions for SPX Voice."
+---
+
+# Troubleshooting
+
+## Coolify Deploy Fails During Build
+
+Check the build logs for the `api` or `ui` service.
+
+Common causes:
+
+- The `pipecat` submodule was not available to the build context.
+- The server ran out of memory during the Next.js build.
+- Required secrets were not set in Coolify.
+
+Make sure the repository includes submodules, then redeploy.
+
+## App Opens But API Calls Fail
+
+For Coolify, the `ui` service should have:
+
+```env
+BACKEND_URL=http://api:8000
+```
+
+The public domain should point to the `ui` service on port `3010`; the API does
+not need a separate public port for normal dashboard usage.
+
+## Links Point To Localhost
+
+Set:
+
+```env
+APP_URL=https://your-domain.example
+```
+
+Then redeploy.
+
+## Freeing Local Ports
+
+macOS/Linux:
+
+```bash
+lsof -i :3010
+kill -9 $(lsof -t -i :3010)
+```
+
+Windows PowerShell:
+
+```powershell
+netstat -ano | findstr :3010
+Stop-Process -Id <PID> -Force
+```
+
+## Stop Local Docker Services
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml down
+```
+
+Remove local data volumes:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml down -v
+```
+
+## Voice Connects But Audio Fails
+
+If this happens in browser WebRTC calls across restrictive networks, configure a
+TURN server outside Coolify and set:
+
+```env
+TURN_HOST=turn.example.com
+TURN_SECRET=generate-a-long-random-value
+```
+
+For LiveKit calls, also verify your LiveKit server, SIP ingress, and telephony
+provider settings.
