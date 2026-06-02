@@ -6,7 +6,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
 from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResponse
-from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
+from api.services.auth.depends import ensure_default_user_setup, get_user
 from api.services.auth.managed_org import assign_user_to_managed_organization
 from api.services.posthog_client import capture_event
 from api.utils.auth import create_jwt_token, hash_password, verify_password
@@ -47,16 +47,12 @@ async def signup(request: SignupRequest):
     # mint a separate tenant for every user.
     organization, _ = await assign_user_to_managed_organization(user)
 
-    # Create default service configuration
+    # Create default service configuration and starter workflow
     try:
-        mps_config = await create_user_configuration_with_mps_key(
-            user.id, organization.id, user.provider_id
-        )
-        if mps_config:
-            await db_client.update_user_configuration(user.id, mps_config)
+        await ensure_default_user_setup(user)
     except Exception:
         logger.warning(
-            "Failed to create default configuration for OSS user", exc_info=True
+            "Failed to create default setup for OSS user", exc_info=True
         )
 
     # Create JWT token

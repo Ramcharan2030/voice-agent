@@ -7,6 +7,7 @@ from api.routes.user import router
 from api.schemas.user_configuration import UserConfiguration
 from api.services.auth.depends import get_user
 from api.services.configuration.check_validity import UserConfigurationValidator
+from api.services.configuration.defaults import build_env_default_user_configuration
 from api.services.configuration.masking import check_for_masked_keys
 from api.services.configuration.registry import ServiceProviders
 
@@ -46,6 +47,29 @@ def test_realtime_configuration_ignores_inactive_stt_tts_without_api_keys():
     assert config.stt is None
     assert config.tts is None
     assert config.realtime is not None
+
+
+def test_env_default_configuration_prefers_gemini_realtime(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-test-key")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_GENERATIVE_AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_AI_API_KEY", raising=False)
+
+    config = build_env_default_user_configuration()
+
+    assert config is not None
+    assert config.is_realtime is True
+    assert config.realtime is not None
+    assert config.realtime.provider == "google_realtime"
+    assert config.realtime.model == "gemini-3.1-flash-live-preview"
+    assert config.realtime.voice == "Kore"
+    assert config.realtime.language == "en"
+    assert config.realtime.get_all_api_keys() == ["google-test-key"]
+    assert config.llm is not None
+    assert config.llm.provider == "google"
+    assert config.llm.get_all_api_keys() == ["google-test-key"]
+    assert config.embeddings is not None
+    assert config.embeddings.provider == "google"
 
 
 @pytest.mark.asyncio

@@ -211,6 +211,20 @@ services:
       MPS_API_URL: "${MPS_API_URL:-}"
       HOSTED_MPS_SECRET_KEY: "${HOSTED_MPS_SECRET_KEY:-}"
 
+      # First-run model bootstrap. Gemini realtime is the primary OSS default.
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GOOGLE_GENERATIVE_AI_API_KEY: "${GOOGLE_GENERATIVE_AI_API_KEY:-}"
+      GOOGLE_AI_API_KEY: "${GOOGLE_AI_API_KEY:-}"
+      DEFAULT_REALTIME_MODEL: "${DEFAULT_REALTIME_MODEL:-gemini-3.1-flash-live-preview}"
+      DEFAULT_REALTIME_VOICE: "${DEFAULT_REALTIME_VOICE:-Kore}"
+      DEFAULT_REALTIME_LANGUAGE: "${DEFAULT_REALTIME_LANGUAGE:-en}"
+      DEFAULT_GOOGLE_LLM_MODEL: "${DEFAULT_GOOGLE_LLM_MODEL:-gemini-2.5-flash}"
+      DEFAULT_GOOGLE_EMBEDDING_MODEL: "${DEFAULT_GOOGLE_EMBEDDING_MODEL:-gemini-embedding-001}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+      ELEVENLABS_API_KEY: "${ELEVENLABS_API_KEY:-}"
+
       # Optional observability. Provide your own keys/hosts when needed.
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
       POSTHOG_API_KEY: "${POSTHOG_API_KEY:-}"
@@ -244,6 +258,8 @@ services:
     environment:
       # Server-side URL (SSR, internal Docker network)
       BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      MINIO_INTERNAL_URL: "${MINIO_INTERNAL_URL:-http://minio:9000}"
+      MINIO_BUCKET: "${MINIO_BUCKET:-voice-audio}"
       NODE_ENV: "oss"
       # Optional observability. Provide your own keys/hosts when needed.
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"

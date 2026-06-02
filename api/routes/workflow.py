@@ -21,7 +21,10 @@ from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import (
+    check_workflow_configurations_for_masked_keys,
+    mask_workflow_configurations,
     mask_workflow_definition,
+    merge_workflow_configuration_api_keys,
     merge_workflow_api_keys,
 )
 from api.services.configuration.merge import SERVICE_FIELDS
@@ -458,7 +461,9 @@ async def create_workflow(
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": workflow.template_context_variables,
         "call_disposition_codes": workflow.call_disposition_codes,
-        "workflow_configurations": workflow.workflow_configurations,
+        "workflow_configurations": mask_workflow_configurations(
+            workflow.workflow_configurations
+        ),
     }
 
 
@@ -558,7 +563,9 @@ async def create_workflow_from_template(
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
             "call_disposition_codes": workflow.call_disposition_codes,
-            "workflow_configurations": workflow.workflow_configurations,
+            "workflow_configurations": mask_workflow_configurations(
+                workflow.workflow_configurations
+            ),
         }
 
     except HTTPException:
@@ -701,7 +708,7 @@ async def get_workflow(
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": template_vars,
         "call_disposition_codes": workflow.call_disposition_codes,
-        "workflow_configurations": workflow_configs,
+        "workflow_configurations": mask_workflow_configurations(workflow_configs),
         "version_number": active_def.version_number if active_def else None,
         "version_status": active_def.status if active_def else None,
         "workflow_uuid": workflow.workflow_uuid,
@@ -739,7 +746,9 @@ async def get_workflow_versions(
             created_at=v.created_at,
             published_at=v.published_at,
             workflow_json=mask_workflow_definition(v.workflow_json),
-            workflow_configurations=v.workflow_configurations,
+            workflow_configurations=mask_workflow_configurations(
+                v.workflow_configurations
+            ),
             template_context_variables=v.template_context_variables,
         )
         for v in versions
@@ -824,7 +833,9 @@ async def create_workflow_draft(
         created_at=draft.created_at,
         published_at=draft.published_at,
         workflow_json=mask_workflow_definition(draft.workflow_json),
-        workflow_configurations=draft.workflow_configurations,
+        workflow_configurations=mask_workflow_configurations(
+            draft.workflow_configurations
+        ),
         template_context_variables=draft.template_context_variables,
     )
 
@@ -882,7 +893,9 @@ async def update_workflow_status(
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
             "call_disposition_codes": workflow.call_disposition_codes,
-            "workflow_configurations": workflow.workflow_configurations,
+            "workflow_configurations": mask_workflow_configurations(
+                workflow.workflow_configurations
+            ),
             "total_runs": run_count,
         }
     except ValueError as e:
@@ -925,26 +938,42 @@ async def update_workflow(
         # response echoes workflow_definition so the client picks up the new
         # UUID without a refetch.
         workflow_definition = ensure_trigger_paths(workflow_definition)
-        if workflow_definition:
+        existing_workflow = None
+        existing_draft = None
+        existing_def = None
+        existing_configs = None
+        if workflow_definition or request.workflow_configurations:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
             )
             if existing_workflow:
                 # Merge against what the user was editing (draft or published)
                 existing_draft = await db_client.get_draft_version(workflow_id)
-                existing_def = (
-                    existing_draft.workflow_json
-                    if existing_draft
-                    else existing_workflow.released_definition.workflow_json
+                existing_active_def = (
+                    existing_draft or existing_workflow.released_definition
                 )
-                workflow_definition = merge_workflow_api_keys(
-                    workflow_definition,
-                    existing_def,
-                )
+                existing_def = existing_active_def.workflow_json
+                existing_configs = existing_active_def.workflow_configurations
+
+        if workflow_definition and existing_def:
+            workflow_definition = merge_workflow_api_keys(
+                workflow_definition,
+                existing_def,
+            )
 
         # Validate model_overrides: resolve onto global config, then
         # run the same validator used by the user-configurations endpoint.
         workflow_configurations = request.workflow_configurations
+        if workflow_configurations:
+            workflow_configurations = merge_workflow_configuration_api_keys(
+                workflow_configurations,
+                existing_configs,
+            )
+            try:
+                check_workflow_configurations_for_masked_keys(workflow_configurations)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
         if workflow_configurations and workflow_configurations.get("model_overrides"):
             model_overrides = workflow_configurations["model_overrides"]
             workflow_configurations = {
@@ -1049,7 +1078,7 @@ async def update_workflow(
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": template_vars,
             "call_disposition_codes": workflow.call_disposition_codes,
-            "workflow_configurations": workflow_configs,
+            "workflow_configurations": mask_workflow_configurations(workflow_configs),
             "version_number": active_def.version_number if active_def else None,
             "version_status": active_def.status if active_def else None,
         }
@@ -1096,7 +1125,9 @@ async def duplicate_workflow_endpoint(
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
             "call_disposition_codes": workflow.call_disposition_codes,
-            "workflow_configurations": workflow.workflow_configurations,
+            "workflow_configurations": mask_workflow_configurations(
+                workflow.workflow_configurations
+            ),
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -1375,7 +1406,9 @@ async def duplicate_workflow_template(
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": workflow.template_context_variables,
         "call_disposition_codes": workflow.call_disposition_codes,
-        "workflow_configurations": workflow.workflow_configurations,
+        "workflow_configurations": mask_workflow_configurations(
+            workflow.workflow_configurations
+        ),
     }
 
 

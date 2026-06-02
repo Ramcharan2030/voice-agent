@@ -33,6 +33,10 @@ from api.services.livekit.worker_process import (
     apply_livekit_worker_settings,
     get_worker_status,
 )
+from api.services.workflow.defaults import (
+    DEFAULT_WORKFLOW_NAME,
+    ensure_default_workflow_for_organization,
+)
 
 router = APIRouter(prefix="/livekit")
 
@@ -191,13 +195,11 @@ async def setup_vobiz_livekit(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     organization_id = user.selected_organization_id
-    if request.inbound_workflow_id is not None:
-        workflow = await db_client.get_workflow(
-            request.inbound_workflow_id,
-            organization_id=organization_id,
-        )
-        if not workflow:
-            raise HTTPException(status_code=404, detail="Inbound workflow not found")
+    inbound_workflow_id = await _resolve_vobiz_setup_inbound_workflow_id(
+        request.inbound_workflow_id,
+        organization_id=organization_id,
+        user_id=getattr(user, "id", None),
+    )
 
     if request.provision_livekit_sip:
         existing_settings = effective_livekit_settings()
@@ -280,17 +282,17 @@ async def setup_vobiz_livekit(
         )
 
     assigned = 0
-    if request.inbound_workflow_id is not None:
+    if inbound_workflow_id is not None:
         numbers = await db_client.list_phone_numbers_for_config(row.id)
         for number in numbers:
             if not getattr(number, "is_active", False):
                 continue
-            if getattr(number, "inbound_workflow_id", None) == request.inbound_workflow_id:
+            if getattr(number, "inbound_workflow_id", None) == inbound_workflow_id:
                 continue
             await db_client.update_phone_number(
                 number.id,
                 row.id,
-                inbound_workflow_id=request.inbound_workflow_id,
+                inbound_workflow_id=inbound_workflow_id,
             )
             assigned += 1
         if assigned and request.provision_livekit_sip:
@@ -315,10 +317,56 @@ async def setup_vobiz_livekit(
         telephony_config_created=created,
         imported_phone_numbers=imported_phone_numbers,
         active_phone_numbers=active_phone_numbers,
-        inbound_workflow_id=request.inbound_workflow_id,
+        inbound_workflow_id=inbound_workflow_id,
         sync_ok=sync_result.ok,
         sync_message=message,
     )
+
+
+async def _resolve_vobiz_setup_inbound_workflow_id(
+    requested_workflow_id: int | None,
+    *,
+    organization_id: int,
+    user_id: int | None,
+) -> int | None:
+    if requested_workflow_id is not None:
+        workflow = await db_client.get_workflow(
+            requested_workflow_id,
+            organization_id=organization_id,
+        )
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Inbound workflow not found")
+        return requested_workflow_id
+
+    if user_id is None:
+        return None
+
+    await ensure_default_workflow_for_organization(
+        user_id=user_id,
+        organization_id=organization_id,
+    )
+    workflows = await db_client.get_all_workflows_for_listing(
+        organization_id=organization_id,
+        status="active",
+    )
+    if not workflows:
+        return None
+
+    default_workflow = next(
+        (
+            workflow
+            for workflow in workflows
+            if getattr(workflow, "name", None) == DEFAULT_WORKFLOW_NAME
+        ),
+        None,
+    )
+    if default_workflow:
+        return default_workflow.id
+
+    if len(workflows) == 1:
+        return workflows[0].id
+
+    return None
 
 
 async def _sync_vobiz_livekit_config_safely(**kwargs) -> VobizLiveKitSyncResult:

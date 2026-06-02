@@ -1302,6 +1302,10 @@ export type DefaultConfigurationsResponse = {
     default_providers: {
         [key: string]: string;
     };
+    /**
+     * Default Is Realtime
+     */
+    default_is_realtime: boolean;
 };
 
 /**

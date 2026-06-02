@@ -632,6 +632,37 @@ def _participant_context(participant) -> dict[str, Any]:
     }
 
 
+def _safe_error_text(exc: Exception, *, limit: int = 1000) -> str:
+    return f"{type(exc).__name__}: {exc}"[:limit]
+
+
+async def _append_livekit_run_event(
+    workflow_run_id: int,
+    event: dict[str, Any],
+) -> None:
+    """Persist a compact LiveKit runtime event on the workflow run logs."""
+    try:
+        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+        current_logs = workflow_run.logs if workflow_run else {}
+        current_events = (current_logs or {}).get("livekit_events")
+        if not isinstance(current_events, list):
+            current_events = []
+        await db_client.update_workflow_run(
+            workflow_run_id,
+            logs={
+                "livekit_events": [
+                    *current_events,
+                    {
+                        "timestamp": time.time(),
+                        **event,
+                    },
+                ]
+            },
+        )
+    except Exception as log_exc:
+        logger.debug(f"[LiveKit] failed to persist runtime event: {log_exc}")
+
+
 def _render_node_prompt(prompt: str | None, call_context_vars: dict[str, Any]) -> str:
     return render_template(prompt or "", call_context_vars)
 
@@ -1344,7 +1375,23 @@ class LiveKitWorkflowAgent(Agent):
                 )
             except Exception as exc:
                 opening_audio_path = None
-                logger.warning(f"[LiveKit] live opening audio cache failed: {exc}")
+                error_text = _safe_error_text(exc)
+                logger.warning(
+                    "[LiveKit] live opening audio cache failed; "
+                    f"falling back to Gemini TTS: {error_text}"
+                )
+                await _append_livekit_run_event(
+                    self._workflow_run_id,
+                    {
+                        "type": "opening_audio_cache_failed",
+                        "level": "warning",
+                        "message": error_text,
+                        "fallback": "gemini_tts",
+                        "model": self._opening_model,
+                        "voice": self._tts_voice,
+                        "language": self._tts_language,
+                    },
+                )
 
             if opening_audio_path:
                 logger.info(
@@ -2251,97 +2298,126 @@ async def entrypoint(ctx: JobContext) -> None:
         else None
     )
 
-    vad = getattr(ctx.proc, "userdata", {}).get("vad") or silero.VAD.load(
-        **_silero_vad_options()
-    )
-    session = _create_session(
-        user_config,
-        vad=vad,
-        latency_profile=latency_profile,
-    )
-    agent = LiveKitWorkflowAgent(
-        ctx=ctx,
-        workflow=workflow_graph,
-        workflow_run_id=workflow_run_id,
-        organization_id=organization_id,
-        call_context_vars=initial_context,
-        embeddings_api_key=embedding_settings.get("api_key"),
-        embeddings_provider=embedding_settings.get("provider"),
-        embeddings_model=embedding_settings.get("model"),
-        embeddings_base_url=embedding_settings.get("base_url"),
-        has_recordings=has_recordings,
-        uses_realtime=bool(user_config.is_realtime),
-        realtime_generate_reply_supported=realtime_generate_reply_supported,
-        realtime_tool_choice_supported=_supports_realtime_tool_choice(
-            realtime_provider
-        ),
-        realtime_exact_speech_uses_tts=(
-            bool(user_config.is_realtime)
-            and not realtime_generate_reply_supported
-            and realtime_provider == ServiceProviders.GOOGLE_REALTIME.value
-            and bool(realtime_tts_api_key)
-        ),
-        tts_api_key=(
-            realtime_tts_api_key
-            if realtime_provider == ServiceProviders.GOOGLE_REALTIME.value
-            else None
-        ),
-        opening_model=(
-            getattr(user_config.realtime, "model", None)
-            if user_config.is_realtime and user_config.realtime
-            else None
-        ),
-        tts_voice=(
-            getattr(user_config.realtime, "voice", None)
-            if user_config.is_realtime and user_config.realtime
-            else None
-        )
-        or "Leda",  # Gemini voice id, not the assistant name.
-        tts_language=(
-            getattr(user_config.realtime, "language", None)
-            if user_config.is_realtime and user_config.realtime
-            else None
-        )
-        or "te-IN",
-        latency_profile=latency_profile,
-    )
-    _register_feedback_handlers(session, agent)
-    agent.prewarm_opening_audio()
     try:
-        recording_state = await asyncio.wait_for(
-            post_call.start_livekit_room_recording(
-                room_name=ctx.room.name,
-                workflow_run_id=workflow_run_id,
-            ),
-            timeout=5.0,
+        vad = getattr(ctx.proc, "userdata", {}).get("vad") or silero.VAD.load(
+            **_silero_vad_options()
         )
+        session = _create_session(
+            user_config,
+            vad=vad,
+            latency_profile=latency_profile,
+        )
+        agent = LiveKitWorkflowAgent(
+            ctx=ctx,
+            workflow=workflow_graph,
+            workflow_run_id=workflow_run_id,
+            organization_id=organization_id,
+            call_context_vars=initial_context,
+            embeddings_api_key=embedding_settings.get("api_key"),
+            embeddings_provider=embedding_settings.get("provider"),
+            embeddings_model=embedding_settings.get("model"),
+            embeddings_base_url=embedding_settings.get("base_url"),
+            has_recordings=has_recordings,
+            uses_realtime=bool(user_config.is_realtime),
+            realtime_generate_reply_supported=realtime_generate_reply_supported,
+            realtime_tool_choice_supported=_supports_realtime_tool_choice(
+                realtime_provider
+            ),
+            realtime_exact_speech_uses_tts=(
+                bool(user_config.is_realtime)
+                and not realtime_generate_reply_supported
+                and realtime_provider == ServiceProviders.GOOGLE_REALTIME.value
+                and bool(realtime_tts_api_key)
+            ),
+            tts_api_key=(
+                realtime_tts_api_key
+                if realtime_provider == ServiceProviders.GOOGLE_REALTIME.value
+                else None
+            ),
+            opening_model=(
+                getattr(user_config.realtime, "model", None)
+                if user_config.is_realtime and user_config.realtime
+                else None
+            ),
+            tts_voice=(
+                getattr(user_config.realtime, "voice", None)
+                if user_config.is_realtime and user_config.realtime
+                else None
+            )
+            or "Leda",  # Gemini voice id, not the assistant name.
+            tts_language=(
+                getattr(user_config.realtime, "language", None)
+                if user_config.is_realtime and user_config.realtime
+                else None
+            )
+            or "te-IN",
+            latency_profile=latency_profile,
+        )
+        _register_feedback_handlers(session, agent)
+        agent.prewarm_opening_audio()
+        try:
+            recording_state = await asyncio.wait_for(
+                post_call.start_livekit_room_recording(
+                    room_name=ctx.room.name,
+                    workflow_run_id=workflow_run_id,
+                ),
+                timeout=5.0,
+            )
+        except Exception as exc:
+            logger.warning(f"[LiveKit] recording start skipped: {exc}")
+            recording_state = None
+        agent.set_recording_state(recording_state)
+        if recording_state is not None:
+            try:
+                await db_client.update_workflow_run(
+                    workflow_run_id,
+                    recording_url=post_call.recording_available_url(recording_state),
+                    gathered_context={"livekit_recording": recording_state.to_log()},
+                )
+            except Exception as exc:
+                logger.warning(f"[LiveKit] failed to persist recording start: {exc}")
+
+        async def _shutdown(reason: str) -> None:
+            await _finalize_livekit_workflow_run(
+                workflow_run_id=workflow_run_id,
+                session=session,
+                agent=agent,
+                room_name=ctx.room.name,
+                reason=reason,
+            )
+
+        ctx.add_shutdown_callback(_shutdown)
+
+        await session.start(agent=agent, room=ctx.room)
+        await agent.start_opening()
     except Exception as exc:
-        logger.warning(f"[LiveKit] recording start skipped: {exc}")
-        recording_state = None
-    agent.set_recording_state(recording_state)
-    if recording_state is not None:
+        error_text = _safe_error_text(exc)
+        logger.exception(
+            "[LiveKit] workflow run startup failed "
+            f"run_id={workflow_run_id} provider={realtime_provider} "
+            f"model={realtime_model}"
+        )
+        await _append_livekit_run_event(
+            workflow_run_id,
+            {
+                "type": "startup_failed",
+                "level": "error",
+                "message": error_text,
+                "provider": realtime_provider,
+                "model": realtime_model,
+                "is_realtime": bool(user_config.is_realtime),
+            },
+        )
         try:
             await db_client.update_workflow_run(
                 workflow_run_id,
-                recording_url=post_call.recording_available_url(recording_state),
-                gathered_context={"livekit_recording": recording_state.to_log()},
+                is_completed=True,
+                state=WorkflowRunState.COMPLETED.value,
+                annotations={"livekit_startup_error": error_text},
             )
         except Exception as exc:
-            logger.warning(f"[LiveKit] failed to persist recording start: {exc}")
-
-    async def _shutdown(reason: str) -> None:
-        await _finalize_livekit_workflow_run(
-            workflow_run_id=workflow_run_id,
-            session=session,
-            agent=agent,
-            room_name=ctx.room.name,
-            reason=reason,
-        )
-
-    ctx.add_shutdown_callback(_shutdown)
-
-    await session.start(agent=agent, room=ctx.room)
-    await agent.start_opening()
+            logger.warning(f"[LiveKit] failed to persist startup failure: {exc}")
+        raise
 
 
 if __name__ == "__main__":

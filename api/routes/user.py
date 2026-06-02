@@ -15,6 +15,7 @@ from api.services.configuration.check_validity import (
     UserConfigurationValidator,
 )
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
+from api.services.configuration.defaults import DEFAULT_IS_REALTIME
 from api.services.configuration.masking import check_for_masked_keys, mask_user_config
 from api.services.configuration.merge import SERVICE_FIELDS, merge_user_configurations
 from api.services.configuration.registry import REGISTRY, ServiceType
@@ -36,6 +37,7 @@ class DefaultConfigurationsResponse(TypedDict):
     embeddings: dict[str, dict]
     realtime: dict[str, dict]
     default_providers: dict[str, str]
+    default_is_realtime: bool
 
 
 @router.get("/configurations/defaults")
@@ -71,6 +73,7 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
             for provider, model_cls in REGISTRY[ServiceType.REALTIME].items()
         },
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
+        "default_is_realtime": DEFAULT_IS_REALTIME,
     }
     return configurations
 

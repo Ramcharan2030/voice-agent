@@ -1282,6 +1282,57 @@ async def test_livekit_realtime_opening_prefers_cached_live_audio(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_livekit_realtime_opening_cache_failure_records_fallback(monkeypatch):
+    graph = _workflow_without_greeting()
+    agent = worker.LiveKitWorkflowAgent(
+        ctx=_job_context(),
+        workflow=graph,
+        workflow_run_id=17,
+        organization_id=9,
+        call_context_vars={},
+        uses_realtime=True,
+        realtime_generate_reply_supported=False,
+        realtime_exact_speech_uses_tts=True,
+        tts_api_key="google-api-key",
+        opening_model="gemini-3.1-flash-live-preview",
+        tts_voice="Kore",
+        tts_language="en",
+    )
+    captured = {}
+    persisted = AsyncMock()
+
+    async def fail_live_opening_audio_path(**kwargs):
+        raise RuntimeError("Gemini cache failed")
+
+    def fake_say_text(text, *, allow_interruptions=True, audio=None):
+        captured["text"] = text
+        captured["allow_interruptions"] = allow_interruptions
+        captured["audio"] = audio
+        return "speech"
+
+    monkeypatch.setattr(
+        worker,
+        "_live_opening_audio_path",
+        fail_live_opening_audio_path,
+    )
+    monkeypatch.setattr(worker, "_append_livekit_run_event", persisted)
+    monkeypatch.setattr(agent, "_say_text", fake_say_text)
+
+    result = await agent._speak_opening("Hello.", allow_interruptions=False)
+
+    assert result == "speech"
+    assert captured == {
+        "text": "Hello.",
+        "allow_interruptions": False,
+        "audio": None,
+    }
+    persisted.assert_awaited_once()
+    assert persisted.await_args.args[0] == 17
+    assert persisted.await_args.args[1]["type"] == "opening_audio_cache_failed"
+    assert persisted.await_args.args[1]["fallback"] == "gemini_tts"
+
+
+@pytest.mark.asyncio
 async def test_livekit_immutable_realtime_auto_advance_skips_session_updates(
     monkeypatch,
 ):

@@ -221,7 +221,7 @@ export function ServiceConfigurationForm({
 
             // Restore realtime toggle
             const configData = configSource as Record<string, unknown> | null;
-            if (configData?.is_realtime) {
+            if (configData?.is_realtime || (data.default_is_realtime && !configData)) {
                 setIsRealtime(true);
             }
 
@@ -231,13 +231,8 @@ export function ServiceConfigurationForm({
                 tts: selectProvider(response.data.default_providers.tts, ttsSchemas),
                 stt: selectProvider(response.data.default_providers.stt, sttSchemas),
                 embeddings: selectProvider(response.data.default_providers.embeddings, embeddingsSchemas),
-                realtime: "",
+                realtime: selectProvider(response.data.default_providers.realtime, realtimeSchemas),
             };
-
-            const realtimeProviderKeys = Object.keys(realtimeSchemas);
-            if (realtimeProviderKeys.length > 0) {
-                selectedProviders.realtime = realtimeProviderKeys[0];
-            }
 
             const loadedApiKeys: Record<ServiceSegment, string[]> = {
                 llm: [""],

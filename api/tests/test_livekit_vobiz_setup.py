@@ -129,6 +129,91 @@ async def test_setup_vobiz_livekit_creates_config_and_assigns_inbound_workflow(
 
 
 @pytest.mark.asyncio
+async def test_setup_vobiz_livekit_defaults_to_starter_workflow(monkeypatch):
+    row = SimpleNamespace(
+        id=45,
+        name="Vobiz LiveKit",
+        provider="vobiz",
+        credentials={"auth_id": "MA_1"},
+        organization_id=7,
+        is_default_outbound=True,
+    )
+    default_workflow = SimpleNamespace(id=99, name="Default Voice Assistant")
+    phone_rows = [
+        SimpleNamespace(id=1, is_active=True, inbound_workflow_id=None),
+        SimpleNamespace(id=2, is_active=True, inbound_workflow_id=None),
+    ]
+    db = SimpleNamespace(
+        get_all_workflows_for_listing=AsyncMock(return_value=[default_workflow]),
+        list_telephony_configurations_by_provider=AsyncMock(return_value=[]),
+        create_telephony_configuration=AsyncMock(return_value=row),
+        set_default_telephony_configuration=AsyncMock(return_value=row),
+        list_phone_numbers_for_config=AsyncMock(
+            side_effect=[phone_rows, phone_rows],
+        ),
+        update_phone_number=AsyncMock(),
+    )
+    sync = AsyncMock(
+        side_effect=[
+            SimpleNamespace(ok=True, message=None, imported_phone_numbers=2),
+            SimpleNamespace(ok=True, message=None, imported_phone_numbers=0),
+        ]
+    )
+
+    monkeypatch.setattr(livekit, "db_client", db)
+    monkeypatch.setattr(livekit, "effective_livekit_settings", lambda: _settings())
+    monkeypatch.setattr(livekit, "save_livekit_settings", Mock(return_value=_settings()))
+    monkeypatch.setattr(livekit, "apply_livekit_worker_settings", Mock())
+    monkeypatch.setattr(livekit, "sync_vobiz_livekit_config", sync)
+    ensure_default = AsyncMock()
+    monkeypatch.setattr(
+        livekit,
+        "ensure_default_workflow_for_organization",
+        ensure_default,
+    )
+    monkeypatch.setattr(
+        livekit,
+        "get_worker_status",
+        lambda: SimpleNamespace(
+            managed_by_api=True,
+            running=True,
+            pid=123,
+            message=None,
+        ),
+    )
+
+    response = await livekit.setup_vobiz_livekit(
+        livekit.VobizLiveKitSetupRequest(
+            livekit_url="wss://old.livekit.cloud",
+            livekit_api_key="old-key",
+            livekit_api_secret="old-secret",
+            livekit_sip_inbound_host="old.sip.livekit.cloud",
+            config_name="Vobiz LiveKit",
+            vobiz_auth_id="MA_1",
+            vobiz_auth_token="token",
+        ),
+        user=SimpleNamespace(id=5, selected_organization_id=7),
+    )
+
+    assert response.inbound_workflow_id == 99
+    assert response.sync_message == "Attached inbound workflow to 2 numbers."
+    ensure_default.assert_awaited_once_with(user_id=5, organization_id=7)
+    db.get_all_workflows_for_listing.assert_awaited_once_with(
+        organization_id=7,
+        status="active",
+    )
+    assert db.update_phone_number.await_args_list[0].args == (1, 45)
+    assert db.update_phone_number.await_args_list[0].kwargs == {
+        "inbound_workflow_id": 99
+    }
+    assert db.update_phone_number.await_args_list[1].args == (2, 45)
+    assert db.update_phone_number.await_args_list[1].kwargs == {
+        "inbound_workflow_id": 99
+    }
+    assert sync.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_setup_vobiz_livekit_updates_existing_same_account(monkeypatch):
     existing = SimpleNamespace(
         id=12,

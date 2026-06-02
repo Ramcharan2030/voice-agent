@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 from api.routes.user import router
 from api.schemas.user_configuration import UserConfiguration
 from api.services.auth.depends import get_user
-from api.services.configuration.masking import mask_key
+from api.services.configuration.masking import (
+    check_workflow_configurations_for_masked_keys,
+    mask_key,
+    mask_workflow_configurations,
+    merge_workflow_configuration_api_keys,
+)
 from api.services.configuration.registry import (
     GoogleLLMService,
     OpenAILLMService,
@@ -38,6 +43,84 @@ def _existing_openai_config():
             model="gpt-4.1",
         )
     )
+
+
+def test_workflow_model_overrides_mask_realtime_api_key():
+    masked = mask_workflow_configurations(
+        {
+            "model_overrides": {
+                "is_realtime": True,
+                "realtime": {
+                    "provider": "google_realtime",
+                    "api_key": "google-real-key",
+                    "model": "gemini-3.1-flash-live-preview",
+                    "voice": "Kore",
+                    "language": "en",
+                },
+            }
+        }
+    )
+
+    assert masked["model_overrides"]["realtime"]["api_key"] == mask_key(
+        "google-real-key"
+    )
+
+
+def test_workflow_model_overrides_merge_masked_key_for_same_provider():
+    existing = {
+        "model_overrides": {
+            "realtime": {
+                "provider": "google_realtime",
+                "api_key": "google-real-key",
+                "model": "gemini-3.1-flash-live-preview",
+            }
+        }
+    }
+    incoming = {
+        "model_overrides": {
+            "realtime": {
+                "provider": "google_realtime",
+                "api_key": mask_key("google-real-key"),
+                "model": "gemini-3.1-flash-live-preview",
+                "voice": "Kore",
+            }
+        }
+    }
+
+    merged = merge_workflow_configuration_api_keys(incoming, existing)
+
+    assert merged["model_overrides"]["realtime"]["api_key"] == "google-real-key"
+    check_workflow_configurations_for_masked_keys(merged)
+
+
+def test_workflow_model_overrides_reject_masked_key_after_provider_change():
+    existing = {
+        "model_overrides": {
+            "llm": {
+                "provider": "openai",
+                "api_key": REAL_KEY,
+                "model": "gpt-4.1",
+            }
+        }
+    }
+    incoming = {
+        "model_overrides": {
+            "llm": {
+                "provider": "google",
+                "api_key": MASKED_KEY,
+                "model": "gemini-2.5-flash",
+            }
+        }
+    }
+
+    merged = merge_workflow_configuration_api_keys(incoming, existing)
+
+    try:
+        check_workflow_configurations_for_masked_keys(merged)
+    except ValueError as exc:
+        assert "masked" in str(exc).lower()
+    else:
+        raise AssertionError("masked workflow api_key should be rejected")
 
 
 class TestMaskedKeyRejection:

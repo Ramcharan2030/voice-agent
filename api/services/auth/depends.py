@@ -17,9 +17,11 @@ from api.enums import PostHogEvent
 from api.schemas.user_configuration import UserConfiguration
 from api.services.auth.managed_org import assign_user_to_managed_organization
 from api.services.auth.stack_auth import stackauth
+from api.services.configuration.defaults import build_env_default_user_configuration
 from api.services.configuration.registry import ServiceProviders
 from api.services.dograh_cloud import dograh_cloud_enabled
 from api.services.posthog_client import capture_event
+from api.services.workflow.defaults import ensure_default_workflow_for_organization
 from api.utils.auth import decode_jwt_token
 
 
@@ -118,19 +120,11 @@ async def get_user(
             # Update the user_model object to reflect the change
             user_model.selected_organization_id = organization.id
 
-            # Only create default configuration if organization was just created
-            # This prevents race conditions where multiple concurrent requests
-            # might try to create configurations
             if org_was_created:
-                existing_cfg = await db_client.get_user_configurations(user_model.id)
-                if not (existing_cfg.llm or existing_cfg.tts or existing_cfg.stt):
-                    mps_config = await create_user_configuration_with_mps_key(
-                        user_model.id, organization.id, stack_user["id"]
-                    )
-                    if mps_config:
-                        await db_client.update_user_configuration(
-                            user_model.id, mps_config
-                        )
+                await ensure_default_user_setup(
+                    user_model,
+                    user_provider_id=stack_user["id"],
+                )
 
     except Exception as exc:
         raise HTTPException(
@@ -165,6 +159,7 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
         if user:
             if SINGLE_ORGANIZATION_MODE:
                 await assign_user_to_managed_organization(user)
+                await ensure_default_user_setup(user)
             return user
         raise HTTPException(status_code=401, detail="User not found")
     except HTTPException:
@@ -290,6 +285,63 @@ async def create_user_configuration_with_mps_key(
             logger.warning(
                 f"Failed to get MPS service key: {response.status_code} - {response.text}"
             )
+
+
+async def create_default_user_configuration(
+    user_id: int, organization_id: int, user_provider_id: str
+) -> Optional[UserConfiguration]:
+    """Create the best first-run model configuration for this deployment."""
+
+    mps_config = await create_user_configuration_with_mps_key(
+        user_id, organization_id, user_provider_id
+    )
+    if mps_config:
+        return mps_config
+
+    env_config = build_env_default_user_configuration()
+    if env_config:
+        logger.info(
+            "Created default env-backed model configuration "
+            f"user_id={user_id} organization_id={organization_id}"
+        )
+    return env_config
+
+
+def _has_any_model_configuration(config: UserConfiguration) -> bool:
+    return bool(
+        config.llm
+        or config.tts
+        or config.stt
+        or config.embeddings
+        or config.realtime
+    )
+
+
+async def ensure_default_user_setup(
+    user: UserModel,
+    *,
+    user_provider_id: str | None = None,
+) -> None:
+    """Ensure a user/org has an initial model config and starter workflow."""
+
+    organization_id = user.selected_organization_id
+    if not organization_id:
+        return
+
+    existing_cfg = await db_client.get_user_configurations(user.id)
+    if not _has_any_model_configuration(existing_cfg):
+        default_config = await create_default_user_configuration(
+            user.id,
+            organization_id,
+            user_provider_id or user.provider_id,
+        )
+        if default_config:
+            await db_client.update_user_configuration(user.id, default_config)
+
+    await ensure_default_workflow_for_organization(
+        user_id=user.id,
+        organization_id=organization_id,
+    )
 
 
 async def get_superuser(

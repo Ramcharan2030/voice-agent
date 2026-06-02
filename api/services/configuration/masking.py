@@ -9,6 +9,7 @@ The rules are simple:
    in storage.
 """
 
+import copy
 from typing import Any, Dict, Optional
 
 from api.schemas.user_configuration import UserConfiguration
@@ -120,6 +121,20 @@ def _mask_service(service_cfg: Optional[ServiceConfig]) -> Optional[Dict[str, An
     return data
 
 
+def _mask_service_dict(service_cfg: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if service_cfg is None:
+        return None
+
+    data = copy.deepcopy(service_cfg)
+    if "api_key" in data and data["api_key"]:
+        raw = data["api_key"]
+        if isinstance(raw, list):
+            data["api_key"] = [mask_key(k) for k in raw]
+        else:
+            data["api_key"] = mask_key(raw)
+    return data
+
+
 def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
     """Return a JSON-serialisable dict of *config* with every api_key masked."""
 
@@ -133,6 +148,98 @@ def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
         "test_phone_number": config.test_phone_number,
         "timezone": config.timezone,
     }
+
+
+WORKFLOW_MODEL_OVERRIDE_FIELDS = ("llm", "tts", "stt", "embeddings", "realtime")
+
+
+def mask_model_overrides(model_overrides: Optional[Dict]) -> Optional[Dict]:
+    """Return workflow model overrides with service api_key values masked."""
+    if not model_overrides:
+        return model_overrides
+
+    masked = copy.deepcopy(model_overrides)
+    for field in WORKFLOW_MODEL_OVERRIDE_FIELDS:
+        section = masked.get(field)
+        if isinstance(section, dict):
+            masked[field] = _mask_service_dict(section)
+    return masked
+
+
+def mask_workflow_configurations(configurations: Optional[Dict]) -> Optional[Dict]:
+    """Return workflow_configurations with nested model override keys masked."""
+    if not configurations:
+        return configurations
+
+    masked = copy.deepcopy(configurations)
+    model_overrides = masked.get("model_overrides")
+    if isinstance(model_overrides, dict):
+        masked["model_overrides"] = mask_model_overrides(model_overrides)
+    return masked
+
+
+def merge_workflow_configuration_api_keys(
+    incoming_configurations: Optional[Dict],
+    existing_configurations: Optional[Dict],
+) -> Optional[Dict]:
+    """Preserve real workflow model override keys when incoming values are masked."""
+    if not incoming_configurations or not existing_configurations:
+        return incoming_configurations
+
+    incoming = copy.deepcopy(incoming_configurations)
+    incoming_overrides = incoming.get("model_overrides")
+    existing_overrides = existing_configurations.get("model_overrides")
+    if not isinstance(incoming_overrides, dict) or not isinstance(
+        existing_overrides, dict
+    ):
+        return incoming
+
+    for field in WORKFLOW_MODEL_OVERRIDE_FIELDS:
+        incoming_section = incoming_overrides.get(field)
+        existing_section = existing_overrides.get(field)
+        if not isinstance(incoming_section, dict) or not isinstance(
+            existing_section, dict
+        ):
+            continue
+
+        provider_changed = (
+            existing_section.get("provider") is not None
+            and incoming_section.get("provider") is not None
+            and incoming_section.get("provider") != existing_section.get("provider")
+        )
+        if provider_changed:
+            continue
+
+        incoming_key = incoming_section.get("api_key")
+        existing_key = existing_section.get("api_key")
+        if incoming_key is not None and existing_key is not None:
+            incoming_section["api_key"] = resolve_masked_api_keys(
+                incoming_key,
+                existing_key,
+            )
+        elif incoming_key is None and existing_key is not None:
+            incoming_section["api_key"] = existing_key
+
+    return incoming
+
+
+def check_workflow_configurations_for_masked_keys(configurations: Optional[Dict]) -> None:
+    """Raise if workflow model overrides still contain masked placeholders."""
+    if not configurations:
+        return
+    model_overrides = configurations.get("model_overrides")
+    if not isinstance(model_overrides, dict):
+        return
+
+    for field in WORKFLOW_MODEL_OVERRIDE_FIELDS:
+        section = model_overrides.get(field)
+        if not isinstance(section, dict):
+            continue
+        if contains_masked_key(section.get("api_key")):
+            raise ValueError(
+                f"The workflow {field} api_key appears to be masked. "
+                "Please provide the actual API key, not the masked value."
+            )
 
 
 # ---------------------------------------------------------------------------

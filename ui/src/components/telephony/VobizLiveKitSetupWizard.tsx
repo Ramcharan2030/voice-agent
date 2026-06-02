@@ -87,6 +87,7 @@ interface FormState {
 }
 
 const NO_WORKFLOW = "__none__";
+const DEFAULT_WORKFLOW_NAME = "Default Voice Assistant";
 
 const emptySettings: LiveKitSettings = {
   voice_runtime: "livekit",
@@ -180,12 +181,22 @@ export function VobizLiveKitSetupWizard({
       if (workflowsResponse.error) {
         throw new Error(detailFromError(workflowsResponse.error));
       }
-      setWorkflows(
-        (workflowsResponse.data ?? []).map((workflow) => ({
+      const workflowOptions = (workflowsResponse.data ?? []).map((workflow) => ({
           id: workflow.id,
           name: workflow.name,
-        })),
-      );
+        }));
+      setWorkflows(workflowOptions);
+      setForm((current) => {
+        if (current.inboundWorkflowId !== NO_WORKFLOW) return current;
+        const defaultWorkflow =
+          workflowOptions.find((workflow) => workflow.name === DEFAULT_WORKFLOW_NAME) ??
+          (workflowOptions.length === 1 ? workflowOptions[0] : undefined);
+        if (!defaultWorkflow) return current;
+        return {
+          ...current,
+          inboundWorkflowId: String(defaultWorkflow.id),
+        };
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to load setup data");
     } finally {
