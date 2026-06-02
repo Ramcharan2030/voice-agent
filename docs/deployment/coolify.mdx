@@ -45,12 +45,20 @@ Attach your public domain to the `ui` service on port `3010`.
 Example:
 
 ```text
-https://voice.example.com
+https://voice.example.com:3010
 ```
 
-Coolify terminates HTTPS and forwards traffic to the UI. The UI proxies API
+The `:3010` suffix is the internal container port Coolify should route to. Your
+public browser URL is still the normal `https://voice.example.com`.
+
+Do not attach the main app domain to the `api` service. The UI proxies API
 requests to the internal `api:8000` service, so you do not need to expose the
-API as a separate public service for normal dashboard usage.
+API as a separate public service for normal dashboard usage. If you open an
+API-bound domain at `/`, it will return API metadata instead of the dashboard.
+
+If you use Coolify's generated domain feature, generate the URL for the `ui`
+service using the `SERVICE_URL_UI_3010` or `SERVICE_FQDN_UI_3010` entry. The
+`_3010` part is important because the UI container does not listen on port `80`.
 
 ## 3. Set Required Environment Variables
 
@@ -75,9 +83,10 @@ DISABLE_HOSTED_CLOUD=true
 VOICE_RUNTIME=livekit
 ```
 
-Coolify may also provide a generated service URL for the UI. Setting `APP_URL`
-explicitly is still recommended because it keeps public links, storage links,
-and callback URLs predictable.
+Coolify may also provide a generated service URL for the UI. The compose file
+can fall back to `SERVICE_URL_UI_3010`, but setting `APP_URL` explicitly is
+still recommended because it keeps public links, storage links, and callback
+URLs predictable.
 
 ## 4. Deploy
 
@@ -159,6 +168,12 @@ Before importing upstream changes, read
 
 Check that `BACKEND_URL` inside the `ui` service is `http://api:8000`. The
 provided compose file sets this automatically.
+
+### Domain opens to 404 Not Found
+
+Make sure the domain is attached to the `ui` service on internal port `3010`.
+In Coolify's domain field that means using `https://your-domain.example:3010`.
+Opening a domain attached to `api` will not load the dashboard.
 
 ### Public links point to localhost
 

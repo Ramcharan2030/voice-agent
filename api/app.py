@@ -80,6 +80,16 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return {
+        "name": "SPX Voice API",
+        "health": f"{API_PREFIX}/health",
+        "docs": "/docs",
+    }
+
+
 api_router = APIRouter()
 
 # include subrouters here

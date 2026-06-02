@@ -6,6 +6,7 @@ import pkgutil
 from loguru import logger
 
 _INTERNAL_MODULES = {"base", "loader", "registry"}
+_OPTIONAL_MODULES = {"tuner"}
 _loaded = False
 
 
@@ -20,11 +21,11 @@ def ensure_integrations_loaded() -> None:
             continue
         try:
             importlib.import_module(f"{package.__name__}.{module_info.name}")
-        except ModuleNotFoundError as exc:
-            if exc.name and exc.name.startswith("pipecat"):
+        except ModuleNotFoundError:
+            if module_info.name in _OPTIONAL_MODULES:
                 logger.debug(
-                    f"Skipping integration {module_info.name!r}; optional Pipecat "
-                    f"dependency is unavailable: {exc}"
+                    f"Skipping optional integration {module_info.name!r}; "
+                    "required package is unavailable"
                 )
                 continue
             raise
