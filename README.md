@@ -85,7 +85,9 @@ In Coolify:
 
 1. Create a new Docker Compose resource from this repository.
 2. Set the Compose file path to `docker-compose.coolify.yaml`.
-3. Attach your domain to the `ui` service on port `3010`.
+3. Attach your domain to the `ui` service on port `3010`. In Coolify's domain
+   field, use `https://voice.example.com:3010`; in the browser, open
+   `https://voice.example.com`.
 4. Set these required environment variables:
 
 ```env

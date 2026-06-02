@@ -67,14 +67,14 @@ services:
       MANAGED_ORGANIZATION_PROVIDER_ID: ${MANAGED_ORGANIZATION_PROVIDER_ID:-managed_single_org}
       OSS_JWT_SECRET: ${OSS_JWT_SECRET:-change-this-jwt-secret}
 
-      BACKEND_API_ENDPOINT: ${APP_URL:-${SERVICE_URL_UI_3010:-http://localhost:3010}}
-      UI_APP_URL: ${APP_URL:-${SERVICE_URL_UI_3010:-http://localhost:3010}}
+      BACKEND_API_ENDPOINT: ${APP_URL:-${SERVICE_FQDN_UI_3010:-${SERVICE_URL_UI_3010:-http://localhost:3010}}}
+      UI_APP_URL: ${APP_URL:-${SERVICE_FQDN_UI_3010:-${SERVICE_URL_UI_3010:-http://localhost:3010}}}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change-this-postgres-password}@postgres:5432/${POSTGRES_DB:-spx_voice}
       REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
 
       ENABLE_AWS_S3: "false"
       MINIO_ENDPOINT: minio:9000
-      MINIO_PUBLIC_ENDPOINT: ${APP_URL:-${SERVICE_URL_UI_3010:-http://localhost:3010}}
+      MINIO_PUBLIC_ENDPOINT: ${APP_URL:-${SERVICE_FQDN_UI_3010:-${SERVICE_URL_UI_3010:-http://localhost:3010}}}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-this-minio-password}
       MINIO_BUCKET: ${MINIO_BUCKET:-voice-audio}
@@ -131,17 +131,19 @@ services:
       api:
         condition: service_healthy
     environment:
-      BACKEND_URL: http://api:8000
-      NODE_ENV: production
-      NEXT_PUBLIC_NODE_ENV: oss
-      SERVICE_URL_UI_3010: ${SERVICE_URL_UI_3010:-}
-      SERVICE_FQDN_UI_3010: ${SERVICE_FQDN_UI_3010:-}
-      ENABLE_TELEMETRY: ${ENABLE_TELEMETRY:-false}
-      POSTHOG_KEY: ${POSTHOG_KEY:-}
-      POSTHOG_HOST: ${POSTHOG_HOST:-}
-      POSTHOG_UI_HOST: ${POSTHOG_UI_HOST:-}
-      NEXT_PUBLIC_CHATWOOT_URL: ${NEXT_PUBLIC_CHATWOOT_URL:-}
-      NEXT_PUBLIC_CHATWOOT_TOKEN: ${NEXT_PUBLIC_CHATWOOT_TOKEN:-}
+      - SERVICE_FQDN_UI_3010
+      - SERVICE_URL_UI_3010
+      - BACKEND_URL=http://api:8000
+      - PORT=3010
+      - HOSTNAME=0.0.0.0
+      - NODE_ENV=production
+      - NEXT_PUBLIC_NODE_ENV=oss
+      - ENABLE_TELEMETRY=${ENABLE_TELEMETRY:-false}
+      - POSTHOG_KEY=${POSTHOG_KEY:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-}
+      - POSTHOG_UI_HOST=${POSTHOG_UI_HOST:-}
+      - NEXT_PUBLIC_CHATWOOT_URL=${NEXT_PUBLIC_CHATWOOT_URL:-}
+      - NEXT_PUBLIC_CHATWOOT_TOKEN=${NEXT_PUBLIC_CHATWOOT_TOKEN:-}
     expose:
       - "3010"
     healthcheck:

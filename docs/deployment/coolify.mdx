@@ -56,9 +56,9 @@ requests to the internal `api:8000` service, so you do not need to expose the
 API as a separate public service for normal dashboard usage. If you open an
 API-bound domain at `/`, it will return API metadata instead of the dashboard.
 
-If you use Coolify's generated domain feature, generate the URL for the `ui`
-service using the `SERVICE_URL_UI_3010` or `SERVICE_FQDN_UI_3010` entry. The
-`_3010` part is important because the UI container does not listen on port `80`.
+If you use Coolify's generated domain feature, generate the domain for the `ui`
+service using `SERVICE_FQDN_UI_3010`. The `_3010` part is important because the
+UI container does not listen on port `80`.
 
 ## 3. Set Required Environment Variables
 
@@ -84,9 +84,9 @@ VOICE_RUNTIME=livekit
 ```
 
 Coolify may also provide a generated service URL for the UI. The compose file
-can fall back to `SERVICE_URL_UI_3010`, but setting `APP_URL` explicitly is
-still recommended because it keeps public links, storage links, and callback
-URLs predictable.
+can fall back to `SERVICE_FQDN_UI_3010` or `SERVICE_URL_UI_3010`, but setting
+`APP_URL` explicitly is still recommended because it keeps public links,
+storage links, and callback URLs predictable.
 
 ## 4. Deploy
 
@@ -173,7 +173,9 @@ provided compose file sets this automatically.
 
 Make sure the domain is attached to the `ui` service on internal port `3010`.
 In Coolify's domain field that means using `https://your-domain.example:3010`.
-Opening a domain attached to `api` will not load the dashboard.
+Opening a domain attached to `api` will not load the dashboard. If you are using
+Coolify's generated domains, use the generated `SERVICE_FQDN_UI_3010` value and
+open it without adding `:3010` in your browser.
 
 ### Public links point to localhost
 
