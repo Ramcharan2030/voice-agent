@@ -97,6 +97,10 @@ MINIO_ROOT_PASSWORD=generate-a-long-random-value
 OSS_JWT_SECRET=generate-a-long-random-value
 ```
 
+The first build requires at least 4 GB RAM (8 GB recommended on a shared
+Hostinger VPS) and roughly 20 GB free disk for Docker build layers. See the
+detailed guide for swap, preflight validation, and resource-error diagnostics.
+
 Coolify handles HTTPS and routing. The API, Postgres, Redis, and MinIO stay
 inside the Docker network. The app auto-detects the public URL from the `ui`
 service domain; set `APP_URL=https://voice.example.com` only when you want to

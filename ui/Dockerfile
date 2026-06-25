@@ -1,21 +1,22 @@
 # Multi-stage build
 # Stage 1: Dependencies
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 
-# Install Python and build dependencies for native modules
-# This helps with ARM64 builds and native module compilation
-RUN apk add --no-cache python3 make g++ libc6-compat
+# The committed lockfile currently installs from prebuilt packages. Avoid a
+# full compiler/Python toolchain here: it adds hundreds of MB to the build
+# container and can exhaust small Coolify/Hostinger VPS disks during builds.
+RUN apk add --no-cache libc6-compat
 
 # Copy package files
 COPY ui/package*.json ./
 
-# Clean install with proper handling of native modules
-RUN rm -rf node_modules && \
-    npm ci || npm install
+# Reproducible install. If package.json and package-lock.json drift, fail the
+# build instead of silently generating a different dependency tree.
+RUN npm ci --no-audit --no-fund && npm cache clean --force
 
 # Stage 2: Builder
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install libc6-compat for native modules in builder stage too
@@ -46,15 +47,15 @@ ENV BACKEND_URL="http://api:8000"
 # builds faster on large hosts, but low-memory Coolify machines can crash when
 # Next.js is allowed to consume several GB.
 ENV NODE_OPTIONS="--max-old-space-size=1536"
-RUN npm run build && \
-    rm -rf /tmp/* /root/.npm /root/.next/cache
+RUN npm run build
 
 # Stage 3: Runner (production image)
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 # Environment variables will be provided by docker-compose
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs && \
@@ -72,4 +73,4 @@ USER nextjs
 EXPOSE 3010
 
 # Start the production server using the standalone Node.js server
-CMD sh -c "echo 'SPX Voice UI ready at http://localhost:3010' && PORT=3010 node server.js"
+CMD ["node", "server.js"]

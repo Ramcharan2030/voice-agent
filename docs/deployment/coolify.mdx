@@ -16,9 +16,12 @@ You need:
 - A Coolify instance with Docker available.
 - A Git repository containing SPX Voice.
 - A domain or subdomain pointed at your Coolify server.
-- At least 4 GB RAM for a comfortable first deployment. The UI Docker build is
-  configured for low-memory servers, but 2 GB VPS instances can still struggle
-  if other services are already running.
+- At least 4 GB RAM and 2 CPU cores. For a Hostinger VPS, 8 GB RAM is strongly
+  recommended when Coolify and other applications share the server.
+- At least 20 GB of free disk before the first build. Docker base images,
+  dependency layers, and the final API/UI images coexist during deployment.
+- Swap enabled on VPS plans with 4 GB RAM. A 4 GB swap file is a sensible
+  minimum for the first Next.js build.
 
 <Warning>
 Do not commit `.env`, `api/.env`, `ui/.env`, recordings, transcripts, cache
@@ -69,6 +72,18 @@ POSTGRES_PASSWORD=generate-a-long-random-value
 REDIS_PASSWORD=generate-a-long-random-value
 MINIO_ROOT_PASSWORD=generate-a-long-random-value
 OSS_JWT_SECRET=generate-a-long-random-value
+```
+
+Use independent random values of at least 24 characters. Do not reuse the
+database password for Redis, MinIO, or JWT signing.
+
+You can validate an exported environment locally before deployment:
+
+```bash
+set -a
+source .env
+set +a
+python scripts/validate_coolify_config.py
 ```
 
 Recommended defaults:
@@ -194,6 +209,20 @@ If the VPS restarts or becomes unreachable while the UI build is at
 Stop other workloads, add swap, or deploy on a larger VPS for the first build.
 The provided Dockerfile caps the Next.js build heap and enables webpack memory
 optimizations to keep this as small as practical.
+
+On Hostinger, also check:
+
+```bash
+free -h
+df -h
+docker system df
+```
+
+If the build reports `EROFS`, `no space left on device`, exits with code `137`,
+or the VPS becomes unreachable, the host exhausted disk or memory. Increase the
+VPS resources or safely prune unused Docker build cache from the Coolify server
+before redeploying. Do not delete named volumes containing Postgres or MinIO
+data.
 
 ### Voice calls connect but audio fails
 

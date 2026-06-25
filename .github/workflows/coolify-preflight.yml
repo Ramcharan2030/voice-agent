@@ -1,0 +1,52 @@
+name: Coolify deployment preflight
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: coolify-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Compose file
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password-0123456789
+          REDIS_PASSWORD: ci-redis-password-012345678901
+          MINIO_ROOT_PASSWORD: ci-minio-password-012345678901
+          OSS_JWT_SECRET: ci-jwt-secret-012345678901234567
+          APP_URL: https://voice.example.test
+          VOICE_RUNTIME: livekit
+        run: |
+          python scripts/validate_coolify_config.py
+          docker compose -f docker-compose.coolify.yaml config --quiet
+
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: api/Dockerfile
+          - name: ui
+            dockerfile: ui/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }} production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          cache-from: type=gha,scope=coolify-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=coolify-${{ matrix.name }}
