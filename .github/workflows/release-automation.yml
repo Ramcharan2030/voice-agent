@@ -1,9 +1,9 @@
 name: Release Please
 
 on:
-  push:
-    branches:
-      - main
+  # Releases are optional for self-hosted forks. Run this manually when a
+  # repository owner actually wants release-please to create/update a release.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,5 +18,6 @@ jobs:
           # Config files location
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          # Use PAT to trigger deployment workflow
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          # A PAT is optional. The repository token is sufficient unless the
+          # generated release must trigger additional privileged workflows.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
