@@ -26,25 +26,18 @@ WORKDIR /ts_validator
 COPY api/mcp_server/ts_validator/package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Stage 3: Static ffmpeg binary (avoids apt ffmpeg pulling mesa/libllvm for
-# hardware acceleration we don't use server-side).
-FROM debian:trixie-slim AS ffmpeg-static
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates xz-utils \
-    && curl -fsSL -o /tmp/ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
-    && mkdir -p /tmp/ffmpeg \
-    && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1 \
-    && mv /tmp/ffmpeg/ffmpeg /tmp/ffmpeg/ffprobe /usr/local/bin/ \
-    && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
-
-# Stage 4: Runtime - Minimal image with only runtime dependencies
+# Stage 3: Runtime
 FROM python:3.12-slim AS runner
 
 WORKDIR /app
 
-# Static ffmpeg + ffprobe (used by audio_converter, audio_file_cache, etc.)
-COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
-COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+# ffmpeg + ffprobe are used by audio conversion and caching. Install them from
+# Debian's signed repository instead of downloading an architecture-specific
+# tarball from a third-party host. This is more reliable in Coolify and works
+# on both amd64 and arm64 deployment servers.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Node.js 22 binary only (ts_validator subprocess needs node >=22.6 for
 # native TypeScript stripping; see api/mcp_server/ts_bridge.py). python:3.12-slim

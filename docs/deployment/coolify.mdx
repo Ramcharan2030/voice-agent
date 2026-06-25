@@ -41,6 +41,17 @@ with Coolify environment variables.
 docker-compose.coolify.yaml
 ```
 
+For this fork, verify the deployment summary shows:
+
+```text
+Ramcharan2030/voice-agent
+```
+
+If it shows `Ramcharan2030/spx-voice` or commit `94453e4`, Coolify is still
+connected to the older repository. Change the source repository to
+`https://github.com/Ramcharan2030/voice-agent.git`, select branch `main`, and
+redeploy with **Rebuild without cache**.
+
 ## 2. Set The Domain
 
 Attach your public domain to the `ui` service on port `3010`.
@@ -223,6 +234,13 @@ or the VPS becomes unreachable, the host exhausted disk or memory. Increase the
 VPS resources or safely prune unused Docker build cache from the Coolify server
 before redeploying. Do not delete named volumes containing Postgres or MinIO
 data.
+
+### FFmpeg download fails with curl exit 56
+
+The current API image installs FFmpeg from Debian's signed package repository
+and does not use `johnvansickle.com`. If the deployment log still contains that
+hostname, Coolify is building an older commit or the wrong repository. Confirm
+the Git source is `Ramcharan2030/voice-agent`, then rebuild without cache.
 
 ### Voice calls connect but audio fails
 
