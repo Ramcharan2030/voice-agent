@@ -33,11 +33,16 @@ export default function LoginPage() {
       }
 
       // Set httpOnly cookies via server route
-      await fetch("/api/auth/session", {
+      const sessionResponse = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: res.data.token, user: res.data.user }),
       });
+
+      if (!sessionResponse.ok) {
+        toast.error("Login succeeded, but the browser session could not be created.");
+        return;
+      }
 
       window.location.href = "/after-sign-in";
     } catch {

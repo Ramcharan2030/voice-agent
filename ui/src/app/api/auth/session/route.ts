@@ -1,6 +1,8 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { shouldUseSecureCookies } from '@/lib/auth/cookies';
+
 const OSS_TOKEN_COOKIE = 'voice_console_auth_token';
 const OSS_USER_COOKIE = 'voice_console_auth_user';
 
@@ -12,10 +14,11 @@ export async function POST(request: NextRequest) {
   }
 
   const cookieStore = await cookies();
+  const secure = shouldUseSecureCookies(request);
 
   cookieStore.set(OSS_TOKEN_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure,
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 30,
     path: '/',
@@ -23,7 +26,7 @@ export async function POST(request: NextRequest) {
 
   cookieStore.set(OSS_USER_COOKIE, JSON.stringify(user), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure,
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 30,
     path: '/',
