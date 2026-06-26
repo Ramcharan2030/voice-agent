@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { getAudioDeviceListUnsupportedMessage } from "@/lib/browserMedia";
+
 export const useDeviceInputs = () => {
     const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
     const [selectedAudioInput, setSelectedAudioInput] = useState('');
     const [permissionError, setPermissionError] = useState<string | null>(null);
 
     const getAudioInputDevices = useCallback(async () => {
+        const unsupportedMessage = getAudioDeviceListUnsupportedMessage();
+        if (unsupportedMessage) {
+            setPermissionError(unsupportedMessage);
+            setAudioInputs([]);
+            setSelectedAudioInput('');
+            return;
+        }
+
         try {
             const devices = await navigator.mediaDevices.enumerateDevices();
             const audioDevices = devices.filter(device => device.kind === 'audioinput');
@@ -15,8 +25,8 @@ export const useDeviceInputs = () => {
             if (defaultAudioInput) {
                 setSelectedAudioInput(defaultAudioInput.deviceId);
             }
-        } catch {
-            setPermissionError('Could not enumerate devices');
+        } catch (error) {
+            setPermissionError(error instanceof Error ? error.message : 'Could not enumerate devices');
         }
     }, []);
 

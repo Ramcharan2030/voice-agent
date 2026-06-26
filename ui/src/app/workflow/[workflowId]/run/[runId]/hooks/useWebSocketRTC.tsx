@@ -8,6 +8,7 @@ import { TurnCredentialsResponse } from "@/client/types.gen";
 import { WorkflowValidationError } from "@/components/flow/types";
 import type { ConversationNodeTransitionItem, RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { getAudioCaptureUnsupportedMessage } from "@/lib/browserMedia";
 import logger from '@/lib/logger';
 
 import { sdpFilterCodec } from "../utils";
@@ -844,6 +845,14 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const startLiveKit = async () => {
         let localAudioTrack: LocalAudioTrack | null = null;
         try {
+            const unsupportedMessage = getAudioCaptureUnsupportedMessage();
+            if (unsupportedMessage) {
+                setPermissionError(unsupportedMessage);
+                setConnectionStatus('failed');
+                setConnectionActive(false);
+                return;
+            }
+
             const ready = await validateBeforeStart();
             if (!ready) return;
 
@@ -913,7 +922,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 void disconnectLiveKit(false);
             }
             if (error instanceof Error && error.name === 'NotAllowedError') {
-                setPermissionError('Could not acquire media');
+                setPermissionError('Microphone access denied. Please allow microphone permissions and try again.');
             } else if (error instanceof Error) {
                 setWorkflowConfigModalOpen(true);
                 setWorkflowConfigError(error.message);
@@ -928,6 +937,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         if (appConfigLoading) return;
         setIsStarting(true);
         setConnectionStatus('connecting');
+        setPermissionError(null);
 
         try {
             if (appConfig?.voiceRuntime === 'livekit') {
@@ -1033,6 +1043,13 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             // Get user media and negotiate
             if (constraints.audio) {
                 try {
+                    const unsupportedMessage = getAudioCaptureUnsupportedMessage();
+                    if (unsupportedMessage) {
+                        setPermissionError(unsupportedMessage);
+                        setConnectionStatus('failed');
+                        return;
+                    }
+
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
                     stream.getTracks().forEach((track) => {
                         pc.addTrack(track, stream);
@@ -1040,7 +1057,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                     await negotiate();
                 } catch (err) {
                     logger.error(`Could not acquire media: ${err}`);
-                    setPermissionError('Could not acquire media');
+                    setPermissionError(err instanceof Error && err.name === 'NotAllowedError'
+                        ? 'Microphone access denied. Please allow microphone permissions and try again.'
+                        : 'Could not acquire microphone audio. Check your browser permissions and selected input device.');
                     setConnectionStatus('failed');
                 }
             } else {

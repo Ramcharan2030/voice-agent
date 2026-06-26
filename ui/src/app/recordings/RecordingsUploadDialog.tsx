@@ -29,6 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { getAudioCaptureUnsupportedMessage } from "@/lib/browserMedia";
 interface RecordingsUploadDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -168,6 +169,13 @@ export const RecordingsUploadDialog = ({
 
     const startRecording = async () => {
         try {
+            const unsupportedMessage = getAudioCaptureUnsupportedMessage();
+            if (unsupportedMessage) {
+                setError(unsupportedMessage);
+                resetRecordingState();
+                return;
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const mediaRecorder = new MediaRecorder(stream);
             mediaRecorderRef.current = mediaRecorder;
@@ -201,8 +209,10 @@ export const RecordingsUploadDialog = ({
             recordingTimerRef.current = setInterval(() => {
                 setRecordingDuration((d) => d + 1);
             }, 1000);
-        } catch {
-            setError("Microphone access denied. Please allow microphone permissions.");
+        } catch (err) {
+            setError(err instanceof Error && err.name === "NotAllowedError"
+                ? "Microphone access denied. Please allow microphone permissions."
+                : "Could not start microphone recording. Check your browser permissions and selected input device.");
             resetRecordingState();
         }
     };

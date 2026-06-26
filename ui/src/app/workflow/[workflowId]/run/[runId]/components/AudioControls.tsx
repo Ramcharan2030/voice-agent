@@ -2,6 +2,7 @@ import { Loader2, Mic, Phone, PhoneOff } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { getAudioCaptureUnsupportedMessage } from "@/lib/browserMedia";
 
 interface AudioControlsProps {
     audioInputs: MediaDeviceInfo[];
@@ -35,6 +36,12 @@ export const AudioControls = ({
     const hasValidDevices = audioInputs.length > 0 && audioInputs.some(device => device.label && device.label.trim() !== '');
 
     const requestAudioPermissions = async () => {
+        const unsupportedMessage = getAudioCaptureUnsupportedMessage();
+        if (unsupportedMessage) {
+            setPermissionDenied(true);
+            return;
+        }
+
         setIsRequestingPermission(true);
 
         try {
@@ -69,7 +76,25 @@ export const AudioControls = ({
         return null; // The parent component will handle showing the loading state
     }
 
+    const unsupportedMessage = getAudioCaptureUnsupportedMessage();
+
     if (!hasValidDevices) {
+        if (unsupportedMessage) {
+            return (
+                <div className="flex flex-col items-center justify-center space-y-4 p-8">
+                    <div className="h-12 w-12 bg-destructive/10 rounded-full flex items-center justify-center">
+                        <Mic className="h-6 w-6 text-destructive" />
+                    </div>
+                    <div className="text-center space-y-2">
+                        <p className="text-foreground font-medium">Microphone unavailable</p>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                            {permissionError || unsupportedMessage}
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
         // Show permission denied UI
         if (permissionDenied) {
             return (

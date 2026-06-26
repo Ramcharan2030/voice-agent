@@ -33,6 +33,7 @@ import { PostHogEvent } from "@/constants/posthog-events";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useUserConfig } from "@/context/UserConfigContext";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
+import { getAudioCaptureUnsupportedMessage } from "@/lib/browserMedia";
 
 interface RecordingsDialogProps {
     open: boolean;
@@ -213,6 +214,13 @@ export const RecordingsDialog = ({
 
     const startRecording = async () => {
         try {
+            const unsupportedMessage = getAudioCaptureUnsupportedMessage();
+            if (unsupportedMessage) {
+                setError(unsupportedMessage);
+                resetRecordingState();
+                return;
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const mediaRecorder = new MediaRecorder(stream);
             mediaRecorderRef.current = mediaRecorder;
@@ -246,8 +254,10 @@ export const RecordingsDialog = ({
             recordingTimerRef.current = setInterval(() => {
                 setRecordingDuration((d) => d + 1);
             }, 1000);
-        } catch {
-            setError("Microphone access denied. Please allow microphone permissions.");
+        } catch (err) {
+            setError(err instanceof Error && err.name === "NotAllowedError"
+                ? "Microphone access denied. Please allow microphone permissions."
+                : "Could not start microphone recording. Check your browser permissions and selected input device.");
             resetRecordingState();
         }
     };

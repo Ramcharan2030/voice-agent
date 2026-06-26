@@ -608,6 +608,25 @@
   }
 
   /**
+   * Returns a user-facing message when browser microphone APIs are unavailable.
+   */
+  function getAudioCaptureUnsupportedMessage() {
+    var isLocalhost = window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === '::1';
+
+    if (!window.isSecureContext && !isLocalhost) {
+      return 'Microphone access requires HTTPS. Open this voice widget on an HTTPS domain, or use localhost for local testing.';
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return 'This browser does not expose microphone access. Try Chrome/Edge and allow microphone permissions.';
+    }
+
+    return null;
+  }
+
+  /**
    * Start voice call
    */
   async function startCall() {
@@ -629,6 +648,11 @@
 
       // Request microphone permission
       try {
+        var unsupportedMessage = getAudioCaptureUnsupportedMessage();
+        if (unsupportedMessage) {
+          throw new Error(unsupportedMessage);
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         state.stream = stream;
       } catch (micError) {
