@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 import time
 import uuid
@@ -45,8 +46,12 @@ DEFAULT_OPENING = (
 OPENING_AUDIO_CACHE_DIR = (
     Path(__file__).resolve().parents[2] / ".runtime" / "livekit_openings"
 )
-OPENING_AUDIO_LEADING_SILENCE_MS = 1000
-OPENING_AUDIO_TRAILING_SILENCE_MS = 1100
+OPENING_AUDIO_LEADING_SILENCE_MS = int(
+    os.getenv("LIVEKIT_OPENING_AUDIO_LEADING_SILENCE_MS", "120")
+)
+OPENING_AUDIO_TRAILING_SILENCE_MS = int(
+    os.getenv("LIVEKIT_OPENING_AUDIO_TRAILING_SILENCE_MS", "180")
+)
 OPENING_AUDIO_CACHE_FORMAT = (
     "pcm24k-wav-v4"
     f"-lead{OPENING_AUDIO_LEADING_SILENCE_MS}"
@@ -54,6 +59,12 @@ OPENING_AUDIO_CACHE_FORMAT = (
 )
 OPENING_AUDIO_GENERATION_TIMEOUT_SECONDS = 20.0
 OPENING_AUDIO_MAX_DURATION_SECONDS = 12.0
+LIVEKIT_RECORDING_START_TIMEOUT_SECONDS = float(
+    os.getenv("LIVEKIT_RECORDING_START_TIMEOUT_SECONDS", "1.5")
+)
+DEFAULT_LIVEKIT_LATENCY_PROFILE = os.getenv(
+    "LIVEKIT_DEFAULT_LATENCY_PROFILE", "fast"
+).strip()
 GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 GEMINI_TTS_SAMPLE_RATE = 24000
 GEMINI_TTS_CHANNELS = 1
@@ -1781,6 +1792,38 @@ async def _calculate_livekit_workflow_run_cost(workflow_run_id: int) -> None:
     await calculate_workflow_run_cost(workflow_run_id)
 
 
+async def _start_livekit_recording_background(
+    *,
+    agent: LiveKitWorkflowAgent,
+    room_name: str,
+    workflow_run_id: int,
+) -> None:
+    try:
+        recording_state = await asyncio.wait_for(
+            post_call.start_livekit_room_recording(
+                room_name=room_name,
+                workflow_run_id=workflow_run_id,
+            ),
+            timeout=LIVEKIT_RECORDING_START_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(f"[LiveKit] recording start skipped: {exc}")
+        return
+
+    agent.set_recording_state(recording_state)
+    if recording_state is None:
+        return
+
+    try:
+        await db_client.update_workflow_run(
+            workflow_run_id,
+            recording_url=post_call.recording_available_url(recording_state),
+            gathered_context={"livekit_recording": recording_state.to_log()},
+        )
+    except Exception as exc:
+        logger.warning(f"[LiveKit] failed to persist recording start: {exc}")
+
+
 def _register_feedback_handlers(
     session: AgentSession, agent: LiveKitWorkflowAgent
 ) -> None:
@@ -2259,7 +2302,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     run_definition = workflow_run.definition
     run_configs = run_definition.workflow_configurations or {}
-    latency_profile = run_configs.get("latency_profile")
+    latency_profile = run_configs.get("latency_profile") or DEFAULT_LIVEKIT_LATENCY_PROFILE
     user_config = await user_config_task
     user_config = resolve_effective_config(
         user_config, run_configs.get("model_overrides")
@@ -2355,27 +2398,13 @@ async def entrypoint(ctx: JobContext) -> None:
         )
         _register_feedback_handlers(session, agent)
         agent.prewarm_opening_audio()
-        try:
-            recording_state = await asyncio.wait_for(
-                post_call.start_livekit_room_recording(
-                    room_name=ctx.room.name,
-                    workflow_run_id=workflow_run_id,
-                ),
-                timeout=5.0,
+        asyncio.create_task(
+            _start_livekit_recording_background(
+                agent=agent,
+                room_name=ctx.room.name,
+                workflow_run_id=workflow_run_id,
             )
-        except Exception as exc:
-            logger.warning(f"[LiveKit] recording start skipped: {exc}")
-            recording_state = None
-        agent.set_recording_state(recording_state)
-        if recording_state is not None:
-            try:
-                await db_client.update_workflow_run(
-                    workflow_run_id,
-                    recording_url=post_call.recording_available_url(recording_state),
-                    gathered_context={"livekit_recording": recording_state.to_log()},
-                )
-            except Exception as exc:
-                logger.warning(f"[LiveKit] failed to persist recording start: {exc}")
+        )
 
         async def _shutdown(reason: str) -> None:
             await _finalize_livekit_workflow_run(
