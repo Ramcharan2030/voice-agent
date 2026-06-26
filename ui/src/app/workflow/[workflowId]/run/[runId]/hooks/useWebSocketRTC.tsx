@@ -152,7 +152,38 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         ];
         void audioRef.current.play().catch(error => {
             logger.debug('LiveKit audio autoplay was blocked:', error);
+            setPermissionError('Browser blocked audio playback. Click Retry Call or Start Test again to unlock audio.');
         });
+    }, []);
+
+    const unlockBrowserAudioPlayback = useCallback(async () => {
+        const audioElement = audioRef.current;
+        if (audioElement) {
+            audioElement.muted = false;
+            audioElement.autoplay = true;
+            try {
+                await audioElement.play();
+            } catch (error) {
+                logger.debug('Initial audio element unlock did not complete:', error);
+            }
+        }
+
+        const AudioContextConstructor =
+            window.AudioContext ||
+            (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextConstructor) {
+            return;
+        }
+
+        try {
+            const audioContext = new AudioContextConstructor();
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+            await audioContext.close();
+        } catch (error) {
+            logger.debug('Browser audio context unlock failed:', error);
+        }
     }, []);
 
     const handleLiveKitFeedbackMessage = useCallback((message: { type?: string; payload?: Record<string, unknown> }) => {
@@ -935,6 +966,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const start = async () => {
         if (isStarting || !accessToken) return;
         if (appConfigLoading) return;
+        await unlockBrowserAudioPlayback();
         setIsStarting(true);
         setConnectionStatus('connecting');
         setPermissionError(null);

@@ -2,7 +2,6 @@
 
 import { Loader2, Phone, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { RealtimeFeedback } from "@/components/workflow/conversation";
@@ -54,26 +53,13 @@ export function EmbeddedVoiceTester({
         initialContextVariables,
         onNodeTransition,
     });
-    const autoStartedRef = useRef(false);
-
-    useEffect(() => {
-        if (!runtimeReady) {
-            return;
-        }
-        if (autoStartedRef.current) {
-            return;
-        }
-        autoStartedRef.current = true;
-        void start();
-    }, [runtimeReady, start]);
-
     const endButtonLabel = connectionActive
         ? "End Call"
         : isCompleted
             ? "Start Another Test"
             : connectionStatus === "failed"
                 ? "Retry Call"
-                : "Starting Test...";
+                : "Start Test";
 
     const handleFooterAction = async () => {
         if (connectionActive) {
@@ -85,6 +71,10 @@ export function EmbeddedVoiceTester({
             return;
         }
         if (connectionStatus === "failed") {
+            await start();
+            return;
+        }
+        if (connectionStatus === "idle") {
             await start();
         }
     };
@@ -135,7 +125,7 @@ export function EmbeddedVoiceTester({
                                 </>
                             ) : (
                                 <>
-                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <Phone className="h-4 w-4" />
                                     {endButtonLabel}
                                 </>
                             )}
