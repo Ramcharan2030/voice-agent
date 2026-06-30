@@ -90,6 +90,11 @@ async def root():
     }
 
 
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    return {"status": "ok"}
+
+
 api_router = APIRouter()
 
 # include subrouters here
