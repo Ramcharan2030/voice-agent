@@ -51,6 +51,16 @@ class VobizLiveKitSyncResult:
     imported_phone_numbers: int = 0
 
 
+@dataclass(frozen=True)
+class VobizLiveKitUnlinkResult:
+    deleted_livekit_dispatch_rules: int = 0
+    deleted_livekit_trunks: int = 0
+    deleted_vobiz_trunks: int = 0
+    deleted_vobiz_credentials: int = 0
+    cleared_fields: int = 0
+    warnings: tuple[str, ...] = ()
+
+
 def should_auto_provision_vobiz_livekit() -> bool:
     return is_livekit_runtime() and livekit_configured()
 
@@ -340,6 +350,67 @@ async def import_vobiz_phone_numbers(
     )
 
 
+async def unlink_vobiz_livekit_sip_assets(
+    *,
+    config_id: int,
+    organization_id: int,
+    delete_remote_assets: bool = True,
+) -> VobizLiveKitUnlinkResult:
+    row = await db_client.get_telephony_configuration_for_org(
+        config_id, organization_id
+    )
+    if not row or row.provider != "vobiz":
+        raise HTTPException(status_code=404, detail="Vobiz configuration not found")
+
+    credentials = dict(row.credentials or {})
+    warnings: list[str] = []
+    deleted_livekit_dispatch_rules = 0
+    deleted_livekit_trunks = 0
+    deleted_vobiz_trunks = 0
+    deleted_vobiz_credentials = 0
+
+    if delete_remote_assets:
+        if livekit_configured():
+            livekit_result = await _delete_livekit_sip_assets(credentials)
+            deleted_livekit_dispatch_rules = livekit_result[
+                "deleted_dispatch_rules"
+            ]
+            deleted_livekit_trunks = livekit_result["deleted_trunks"]
+            warnings.extend(livekit_result["warnings"])
+        else:
+            warnings.append(
+                "LiveKit is not configured; skipped remote LiveKit SIP deletion."
+            )
+
+        vobiz_result = await _delete_vobiz_sip_assets(credentials)
+        deleted_vobiz_trunks = vobiz_result["deleted_trunks"]
+        deleted_vobiz_credentials = vobiz_result["deleted_credentials"]
+        warnings.extend(vobiz_result["warnings"])
+
+    next_credentials = dict(credentials)
+    cleared_fields = 0
+    for field in VOBIZ_LIVEKIT_DERIVED_CREDENTIAL_FIELDS:
+        if field in next_credentials:
+            cleared_fields += 1
+            next_credentials.pop(field, None)
+
+    if next_credentials != credentials:
+        await db_client.update_telephony_configuration(
+            config_id=config_id,
+            organization_id=organization_id,
+            credentials=next_credentials,
+        )
+
+    return VobizLiveKitUnlinkResult(
+        deleted_livekit_dispatch_rules=deleted_livekit_dispatch_rules,
+        deleted_livekit_trunks=deleted_livekit_trunks,
+        deleted_vobiz_trunks=deleted_vobiz_trunks,
+        deleted_vobiz_credentials=deleted_vobiz_credentials,
+        cleared_fields=cleared_fields,
+        warnings=tuple(warnings),
+    )
+
+
 async def _import_vobiz_phone_numbers(
     *,
     config_id: int,
@@ -382,6 +453,125 @@ async def _import_vobiz_phone_numbers(
                 f"[Vobiz/LiveKit] skipping auto-imported number {number}: {exc}"
             )
     return imported
+
+
+async def _delete_livekit_sip_assets(credentials: dict[str, Any]) -> dict[str, Any]:
+    deleted_dispatch_rules = 0
+    deleted_trunks = 0
+    warnings: list[str] = []
+
+    settings = effective_livekit_settings()
+    async with livekit_api.LiveKitAPI(
+        settings.livekit_url,
+        settings.livekit_api_key,
+        settings.livekit_api_secret,
+    ) as lkapi:
+        dispatch_rule_ids = _stored_dispatch_rule_ids(credentials)
+        for rule_id in dispatch_rule_ids:
+            try:
+                await lkapi.sip.delete_sip_dispatch_rule(
+                    livekit_api.DeleteSIPDispatchRuleRequest(
+                        sip_dispatch_rule_id=rule_id
+                    )
+                )
+                deleted_dispatch_rules += 1
+            except TwirpError as exc:
+                if exc.code != TwirpErrorCode.NOT_FOUND:
+                    warnings.append(f"LiveKit dispatch rule {rule_id}: {exc}")
+
+        for trunk_id in _dedupe(
+            [
+                str(credentials.get("livekit_sip_outbound_trunk_id") or ""),
+                str(credentials.get("livekit_sip_inbound_trunk_id") or ""),
+            ]
+        ):
+            if not trunk_id:
+                continue
+            try:
+                await lkapi.sip.delete_sip_trunk(
+                    livekit_api.DeleteSIPTrunkRequest(sip_trunk_id=trunk_id)
+                )
+                deleted_trunks += 1
+            except TwirpError as exc:
+                if exc.code != TwirpErrorCode.NOT_FOUND:
+                    warnings.append(f"LiveKit SIP trunk {trunk_id}: {exc}")
+
+    return {
+        "deleted_dispatch_rules": deleted_dispatch_rules,
+        "deleted_trunks": deleted_trunks,
+        "warnings": warnings,
+    }
+
+
+async def _delete_vobiz_sip_assets(credentials: dict[str, Any]) -> dict[str, Any]:
+    auth_id = credentials.get("auth_id")
+    auth_token = credentials.get("auth_token")
+    if not auth_id or not auth_token:
+        return {
+            "deleted_trunks": 0,
+            "deleted_credentials": 0,
+            "warnings": ["Vobiz auth is missing; skipped remote Vobiz SIP deletion."],
+        }
+
+    warnings: list[str] = []
+    deleted_trunks = 0
+    deleted_credentials = 0
+    headers = _vobiz_headers(auth_id, auth_token)
+
+    async with aiohttp.ClientSession() as session:
+        trunk_id = str(credentials.get("vobiz_sip_trunk_id") or "")
+        if trunk_id:
+            endpoint = f"{VOBIZ_API_BASE_URL}/v1/Account/{auth_id}/trunks/{trunk_id}"
+            deleted, warning = await _vobiz_delete_optional(
+                session, endpoint, headers=headers, label=f"Vobiz SIP trunk {trunk_id}"
+            )
+            deleted_trunks += int(deleted)
+            if warning:
+                warnings.append(warning)
+
+        credential_id = str(credentials.get("vobiz_sip_credential_id") or "")
+        if credential_id:
+            endpoint = (
+                f"{VOBIZ_API_BASE_URL}/v1/Account/{auth_id}/credentials/"
+                f"{credential_id}"
+            )
+            deleted, warning = await _vobiz_delete_optional(
+                session,
+                endpoint,
+                headers=headers,
+                label=f"Vobiz SIP credential {credential_id}",
+            )
+            deleted_credentials += int(deleted)
+            if warning:
+                warnings.append(warning)
+
+    return {
+        "deleted_trunks": deleted_trunks,
+        "deleted_credentials": deleted_credentials,
+        "warnings": warnings,
+    }
+
+
+async def _vobiz_delete_optional(
+    session: aiohttp.ClientSession,
+    endpoint: str,
+    *,
+    headers: dict[str, str],
+    label: str,
+) -> tuple[bool, str | None]:
+    try:
+        await _vobiz_request_json(
+            session,
+            "DELETE",
+            endpoint,
+            headers=headers,
+            expected_statuses=(200, 202, 204),
+        )
+        return True, None
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return False, None
+        return False, f"{label}: {exc.detail}"
 
 
 async def _sync_livekit_dispatch_rules(
@@ -1156,6 +1346,24 @@ def _vobiz_sip_destination_numbers(values: list[str]) -> list[str]:
         else:
             destinations.append(number)
     return _dedupe(destinations)
+
+
+def _stored_dispatch_rule_ids(credentials: dict[str, Any]) -> list[str]:
+    rule_ids: list[str] = []
+    single = credentials.get("livekit_sip_dispatch_rule_id")
+    if single:
+        rule_ids.append(str(single))
+
+    rules = credentials.get("livekit_sip_dispatch_rules")
+    if isinstance(rules, dict):
+        for value in rules.values():
+            if not isinstance(value, dict):
+                continue
+            rule_id = value.get("sip_dispatch_rule_id")
+            if rule_id:
+                rule_ids.append(str(rule_id))
+
+    return _dedupe(rule_ids)
 
 
 def _dedupe(values: list[str]) -> list[str]:

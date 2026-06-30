@@ -7,6 +7,7 @@ import {
   Plus,
   Star,
   Trash2,
+  Unlink,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -74,6 +75,8 @@ export default function TelephonyConfigurationDetailPage() {
   const [phoneDeleteTarget, setPhoneDeleteTarget] = useState<PhoneNumberResponse | null>(
     null,
   );
+  const [unlinkSipOpen, setUnlinkSipOpen] = useState(false);
+  const [unlinkSipBusy, setUnlinkSipBusy] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (authLoading || !user || !configId) return;
@@ -164,6 +167,35 @@ export default function TelephonyConfigurationDetailPage() {
     }
   };
 
+  const onConfirmUnlinkSip = async () => {
+    if (!config) return;
+    setUnlinkSipBusy(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(
+        `/api/v1/organizations/telephony-configs/${config.id}/vobiz-livekit-sip/unlink`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailFromError(body));
+      const warnings = Array.isArray(body.warnings) ? body.warnings.length : 0;
+      toast.success(
+        warnings
+          ? `SIP links removed with ${warnings} warning${warnings === 1 ? "" : "s"}`
+          : "SIP links removed",
+      );
+      setUnlinkSipOpen(false);
+      fetchAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove SIP links");
+    } finally {
+      setUnlinkSipBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8 space-y-3">
@@ -236,6 +268,15 @@ export default function TelephonyConfigurationDetailPage() {
             <Button variant="outline" size="sm" onClick={() => setEditConfigOpen(true)}>
               <Pencil className="h-4 w-4 mr-2" /> Edit credentials
             </Button>
+            {config.provider === "vobiz" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setUnlinkSipOpen(true)}
+              >
+                <Unlink className="h-4 w-4 mr-2" /> Remove SIP links
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -406,6 +447,25 @@ export default function TelephonyConfigurationDetailPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={onConfirmDeletePhone}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={unlinkSipOpen} onOpenChange={setUnlinkSipOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Vobiz SIP links?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the auto-provisioned LiveKit and Vobiz SIP trunk links
+              stored on this Vobiz configuration. Your Auth ID/Auth Token and phone
+              numbers stay saved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unlinkSipBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={unlinkSipBusy} onClick={onConfirmUnlinkSip}>
+              {unlinkSipBusy ? "Removing..." : "Remove SIP links"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

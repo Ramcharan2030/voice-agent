@@ -34,6 +34,7 @@ from api.services.livekit.vobiz import (
     VOBIZ_LIVEKIT_SENSITIVE_CREDENTIAL_FIELDS,
     preserve_vobiz_livekit_credentials,
     sync_vobiz_livekit_config,
+    unlink_vobiz_livekit_sip_assets,
 )
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
@@ -107,6 +108,16 @@ class TelephonyConfigWarningsResponse(BaseModel):
     """
 
     telnyx_missing_webhook_public_key_count: int
+
+
+class VobizLiveKitSIPUnlinkResponse(BaseModel):
+    message: str
+    deleted_livekit_dispatch_rules: int
+    deleted_livekit_trunks: int
+    deleted_vobiz_trunks: int
+    deleted_vobiz_credentials: int
+    cleared_fields: int
+    warnings: List[str]
 
 
 @router.get(
@@ -442,6 +453,43 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
     if not row:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")
     return _detail_response(row)
+
+
+@router.post(
+    "/telephony-configs/{config_id}/vobiz-livekit-sip/unlink",
+    response_model=VobizLiveKitSIPUnlinkResponse,
+)
+async def unlink_vobiz_livekit_sip(
+    config_id: int,
+    user: UserModel = Depends(get_user),
+):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    cfg = await db_client.get_telephony_configuration_for_org(
+        config_id, user.selected_organization_id
+    )
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+    if cfg.provider != "vobiz":
+        raise HTTPException(
+            status_code=400,
+            detail="This operation is only available for Vobiz configurations.",
+        )
+
+    result = await unlink_vobiz_livekit_sip_assets(
+        config_id=config_id,
+        organization_id=user.selected_organization_id,
+    )
+    return VobizLiveKitSIPUnlinkResponse(
+        message="Vobiz LiveKit SIP links removed from this configuration.",
+        deleted_livekit_dispatch_rules=result.deleted_livekit_dispatch_rules,
+        deleted_livekit_trunks=result.deleted_livekit_trunks,
+        deleted_vobiz_trunks=result.deleted_vobiz_trunks,
+        deleted_vobiz_credentials=result.deleted_vobiz_credentials,
+        cleared_fields=result.cleared_fields,
+        warnings=list(result.warnings),
+    )
 
 
 @router.delete("/telephony-configs/{config_id}")
